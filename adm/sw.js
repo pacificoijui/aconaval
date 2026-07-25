@@ -1,4 +1,4 @@
-const CACHE = 'aco-naval-gestao-v2';
+const CACHE = 'aco-naval-gestao-v3';
 const ASSETS = [
   'index.html',
   'manifest.json',

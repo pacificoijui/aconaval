@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Aço Naval — Gestão</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -70,17 +70,6 @@ tr:last-child td{border-bottom:none}
 .empty{color:#999;font-size:13px;text-align:center;padding:28px 0;font-style:italic}
 h2{font-size:17px;font-weight:600;margin-bottom:12px;color:#003366}
 h3{font-size:14px;font-weight:600;margin-bottom:12px;color:#555}
-.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12px}
-.bar-label{width:120px;text-align:right;color:#444;font-weight:500;flex-shrink:0;font-size:12px}
-.bar-track{flex:1;background:#f5f7fa;border-radius:20px;height:20px;overflow:hidden;position:relative}
-.bar-fill{height:100%;border-radius:20px}
-.bar-fill.c0{background:linear-gradient(90deg,#378ADD,#185FA5)}
-.bar-fill.c1{background:linear-gradient(90deg,#63b922,#3B6D11)}
-.bar-fill.c2{background:linear-gradient(90deg,#EF9F27,#BA7517)}
-.bar-fill.c3{background:linear-gradient(90deg,#F0997B,#D85A30)}
-.bar-fill.c4{background:linear-gradient(90deg,#AFA9EC,#7F77DD)}
-.bar-fill.c5{background:linear-gradient(90deg,#5DCAA5,#1D9E75)}
-.bar-val{width:120px;color:#0C447C;font-weight:600;text-align:right;flex-shrink:0;font-size:12px}
 .del{background:none;border:none;cursor:pointer;color:#A32D2D;font-size:15px;padding:2px 5px;border-radius:4px}
 .del:hover{background:#FCEBEB}
 .badge-m{background:#E6F1FB;color:#0C447C;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
@@ -92,19 +81,12 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;color:#555}
 .badge-fixo{background:#E6F1FB;color:#0C447C;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}
 .badge-var{background:#FAEEDA;color:#854F0B;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}
 .total-row{background:#f5f7fa;font-weight:600}
-.diff-pos{color:#3B6D11;font-weight:600}
-.diff-neg{color:#A32D2D;font-weight:600}
 .btn-voltar-com{display:inline-flex;align-items:center;gap:5px;text-decoration:none;font-size:13px;font-weight:700;color:#fff;background:#185FA5;padding:8px 16px;border-radius:999px;white-space:nowrap;transition:background .15s;flex-shrink:0}
 .btn-voltar-com:hover{background:#0C447C}
 .save-info{position:fixed;bottom:20px;right:20px;background:#3B6D11;color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;opacity:0;transition:opacity 0.3s;pointer-events:none}
 .save-info.show{opacity:1}
 .check-row{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13px;color:#444}
 .check-row input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#185FA5}
-.anuncio-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:13px}
-.anuncio-label{flex:1;font-weight:500}
-.anuncio-input{width:130px;font-size:13px;padding:6px 8px}
-.anuncio-pct{width:80px;text-align:right;font-weight:600;color:#854F0B}
-.anuncio-pct.ok{color:#3B6D11}
 .section-lbl{font-size:11px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 8px;border-top:1px solid #f0f2f5;padding-top:12px}
 textarea{font-family:inherit}
 .status-sel{border-radius:20px;font-weight:600;font-size:12px;padding:6px 10px;cursor:pointer;transition:box-shadow .15s}
@@ -135,11 +117,19 @@ textarea{font-family:inherit}
 .btn-aprovar:hover{background:#EAF3DE}
 .btn-recusar{width:auto;font-size:12px;padding:7px 14px;border-color:#f09595;color:#A32D2D;background:#fff}
 .btn-recusar:hover{background:#FCEBEB}
-.ent-table th{padding:10px 14px;font-size:11px}
-.ent-table td{padding:10px 14px}
+.ent-table th{padding:10px 10px;font-size:11px}
+.ent-table td{padding:10px 10px}
 .ent-table tr.ag td{background:#fff}
 .ent-table tr.rt td{background:#FFFDF5}
 .ent-table tr.en td{background:#FAFFFE;opacity:0.75}
+/* Dinheiro nunca quebra em duas linhas, e os selects mostram o rótulo inteiro */
+.ent-table td:nth-child(6),.ent-table td:nth-child(7),
+.ent-table th:nth-child(6),.ent-table th:nth-child(7){white-space:nowrap}
+.ent-table .status-sel,.ent-table .com-sel{min-width:112px}
+/* A aba Entregas tem 10 colunas — ganha mais largura que as demais páginas */
+@media(min-width:1120px){
+  .container:has(#page-entregas.active){max-width:1160px}
+}
 @media(max-width:768px){
   /* ── Base ── */
   body{padding:0;padding-bottom:70px}
@@ -151,7 +141,7 @@ textarea{font-family:inherit}
   .header-mes{border-radius:0;padding:8px 14px;gap:6px;border-bottom:1px solid #dde3ea;background:#E6F1FB}
   .header-mes .lbl{display:none}
   .header-mes select{flex:1;font-size:14px;padding:7px 8px;border-radius:6px;min-width:0}
-  .header-mes input{width:74px!important;font-size:14px;padding:7px 8px;border-radius:6px}
+  .header-mes input{width:82px!important;font-size:14px;padding:7px 6px;border-radius:6px;text-align:center}
   #ref-badge{display:block;font-size:12px;font-weight:700;color:#0C447C;margin-left:4px;white-space:nowrap}
 
   /* ── Nav — barra inferior fixa tipo app ── */
@@ -211,10 +201,6 @@ textarea{font-family:inherit}
   .metric{min-width:calc(50% - 5px);flex:1}
   .metric .val{font-size:16px}
 
-  /* ── Barras ── */
-  .bar-label{width:70px;font-size:11px}
-  .bar-val{width:90px;font-size:11px}
-
   /* ── Títulos ── */
   h2{font-size:15px}
   h3{font-size:13px}
@@ -234,11 +220,6 @@ textarea{font-family:inherit}
   /* ── Check row ── */
   .check-row{font-size:14px}
   .check-row input[type=checkbox]{width:20px;height:20px}
-
-  /* ── Anuncios ── */
-  .anuncio-row{flex-direction:column;align-items:flex-start;gap:6px}
-  .anuncio-input{width:100%;font-size:16px;padding:10px 12px}
-  .anuncio-pct{width:100%;text-align:left}
 
   /* ── Dashboard mobile ── */
   .dash-grid{grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
@@ -339,6 +320,8 @@ textarea{font-family:inherit}
   }
   .card-table td[data-label=""]::before{display:none;min-width:0}
   .card-table td[data-label=""] {justify-content:flex-end}
+  /* Célula vazia (preenchimento de colspan) não vira linha em branco no card */
+  .card-table td:empty{display:none}
   /* Entregas — status select full width */
   .card-table .status-sel{width:100%;margin-top:0}
   .card-table .com-sel{width:100%}
@@ -366,16 +349,220 @@ textarea{font-family:inherit}
   .table-wrap:has(.card-table){overflow-x:visible;margin:0;padding:0}
 }
 
+/* ═══════════ AJUSTES DE CELULAR ═══════════ */
+@media(max-width:768px){
+  /* Nada pode furar a largura da tela — evita a rolagem lateral do body */
+  html,body{max-width:100%;overflow-x:hidden}
+
+  /* Barra inferior e conteúdo respeitam o indicador de home do iPhone */
+  body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .nav{padding-bottom:env(safe-area-inset-bottom)}
+
+  /* iOS dá zoom automático em campo com fonte < 16px. Os selects de filtro
+     têm font-size inline (13px), por isso o !important aqui. */
+  input,select,textarea{font-size:16px!important}
+  .status-sel,.com-sel{font-size:14px!important}
+
+  /* Filtros do topo (entregas/pedidos): 2 por linha em vez de espremidos.
+     Os selects têm width:auto inline — daí o !important. */
+  #e-f-ano,#e-f-status,#e-f-com,#ped-f-mes,#ped-f-prod{
+    width:calc(50% - 5px)!important;flex:1 1 calc(50% - 5px);min-width:0
+  }
+  .page .card>div[style*="flex-wrap:wrap"]{width:100%}
+
+  /* Cabeçalho da página: título e filtros empilhados */
+  .card>div[style*="justify-content:space-between"]{gap:10px}
+
+  /* Botão Sair / voltar ao comercial não ocupam a linha toda */
+  .btn-voltar-com,.btn-sair{width:auto;flex:none;font-size:12px;padding:7px 10px}
+
+  /* Bottom sheets (editar vendedor / pedido / comissão paga):
+     limita a altura e deixa rolar — em tela baixa o conteúdo ficava cortado
+     e os botões do rodapé ficavam inalcançáveis. */
+  #ev-panel,#ped-panel,#cp-panel{
+    max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding-bottom:calc(32px + env(safe-area-inset-bottom))!important;
+  }
+
+  /* Métricas: 2 por linha.
+     A .row vira coluna no celular e herda align-items:flex-end, o que jogava
+     os cards de métrica para a direita deixando um vão à esquerda. */
+  .row:has(.metric){flex-direction:row;flex-wrap:wrap;align-items:stretch;gap:8px}
+  .metric{padding:10px 12px}
+  .metric .val{font-size:15px;white-space:nowrap}
+  .metric .lbl{font-size:10px}
+
+  /* Comissão em destaque no card de entregas */
+  .card-table td[data-label="Comissão"]{color:#854F0B;font-weight:700}
+  .card-table td[data-label="Vendedor"]{font-size:12px}
+
+  /* Resumo do mês no dashboard: 3 colunas fixas (inline) espremem o valor
+     em R$ e quebram a linha — no celular vão para 2 colunas. */
+  #page-dashboard div[style*="repeat(3,1fr)"]{grid-template-columns:repeat(2,1fr)!important}
+  #page-dashboard .kpi-val{white-space:nowrap}
+}
+
+/* ── Telas estreitas (até 400px) ── */
+@media(max-width:400px){
+  .metric{padding:9px 10px}
+  .metric .val{font-size:14px}
+  .nav-tab{font-size:9px;min-width:52px;padding:7px 2px 5px}
+  .nav-ico{font-size:16px}
+  .page{padding:10px 10px 14px}
+  .card{padding:10px 12px}
+  .card-table td{padding:8px 11px;font-size:12.5px}
+  .card-table td::before{min-width:62px;font-size:9.5px}
+  #e-f-ano,#e-f-status,#e-f-com,#ped-f-mes,#ped-f-prod{width:100%!important;flex:1 1 100%}
+}
+
+/* ═══════════ TELA DE ACESSO ═══════════ */
+#acn-gate{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:22px;
+  background:radial-gradient(1000px 520px at 50% -160px,rgba(242,169,59,.16),transparent 65%),
+             linear-gradient(140deg,#04182F,#003366 58%,#0A4E8C)}
+#acn-gate .g-glow{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+#acn-gate .g-glow::before{content:"";position:absolute;top:-120px;right:-90px;width:360px;height:360px;
+  background:radial-gradient(circle,rgba(242,169,59,.22),transparent 62%)}
+#acn-gate .g-card{position:relative;width:100%;max-width:380px;background:#fff;border-radius:22px;
+  padding:34px 28px 28px;box-shadow:0 30px 80px rgba(4,24,47,.55);border:1px solid rgba(255,255,255,.6);
+  animation:gRise .5s cubic-bezier(.16,.84,.44,1) both}
+@keyframes gRise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+#acn-gate .g-brand{text-align:center;margin-bottom:22px}
+#acn-gate .g-logo{height:56px;width:56px;border-radius:14px;margin-bottom:12px;object-fit:contain;
+  box-shadow:0 4px 16px rgba(0,51,102,.18)}
+#acn-gate h1{font-size:24px;font-weight:800;color:#003366;letter-spacing:.4px;margin:0}
+#acn-gate .g-sub{font-size:11.5px;color:#9C7522;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;margin-top:4px}
+#acn-gate .g-lock{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:#5C6B7E;
+  font-weight:600;margin:2px 0 20px}
+#acn-gate label{display:block;font-size:11px;font-weight:800;color:#5C6B7E;text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px 2px}
+#acn-gate .g-field{margin-bottom:14px}
+#acn-gate .g-inwrap{position:relative}
+#acn-gate input{width:100%;padding:12px 14px;border:1.5px solid #D3DCE7;border-radius:12px;font-size:16px;color:#0E1B2A;
+  background:#F8FAFD;transition:border .18s,box-shadow .18s,background .18s}
+#acn-gate input:focus{outline:none;border-color:#003366;background:#fff;box-shadow:0 0 0 4px rgba(0,51,102,.10)}
+#acn-gate .g-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;
+  font-size:17px;cursor:pointer;padding:6px;line-height:1}
+#acn-gate .g-btn{width:100%;margin-top:6px;padding:13px;border:none;border-radius:12px;cursor:pointer;
+  font-size:15px;font-weight:800;color:#fff;background:linear-gradient(135deg,#0A4E8C,#003366);
+  box-shadow:0 8px 20px rgba(0,51,102,.28);transition:transform .12s,box-shadow .18s}
+#acn-gate .g-btn:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(0,51,102,.34)}
+#acn-gate .g-btn:active{transform:translateY(0)}
+#acn-gate .g-err{min-height:18px;margin-top:10px;font-size:12.5px;font-weight:700;color:#A32D2D;text-align:center}
+#acn-gate .g-foot{margin-top:16px;text-align:center;font-size:10.5px;color:#9AA7B6;letter-spacing:.3px}
+#acn-gate.shake .g-card{animation:gShake .4s}
+@keyframes gShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+@media(prefers-reduced-motion:reduce){#acn-gate *,#acn-gate.shake .g-card{animation:none!important;transition:none!important}}
+.btn-sair{background:none;border:1px solid #d0d4d8;color:#888;border-radius:7px;padding:7px 12px;
+  font-size:12px;cursor:pointer;font-weight:600}
+.btn-sair:hover{background:#FCEBEB;color:#A32D2D;border-color:#f09595}
 </style>
 </head>
 <body>
+
+<!-- ══════════ TELA DE ACESSO ══════════
+     Barreira de acesso ao painel de gestão. Por ser 100% no navegador,
+     protege contra acesso casual — quem abrir o código-fonte vê as
+     credenciais. Para trocar, edite ACN_USER / ACN_PASS abaixo.
+     O acesso liberado fica gravado no aparelho (localStorage): loga uma vez
+     e não pede mais; qualquer outro PC continua barrado. -->
+<div id="acn-gate" role="dialog" aria-modal="true" aria-label="Acesso ao sistema">
+  <div class="g-glow"></div>
+  <div class="g-card">
+    <div class="g-brand">
+      <img class="g-logo" src="icon-192.png" alt="Aço Naval"/>
+      <h1>AÇO NAVAL</h1>
+      <div class="g-sub">Sistema de Gestão</div>
+    </div>
+    <div class="g-lock">🔒 Acesso restrito à administração</div>
+    <div class="g-field">
+      <label for="acn-gate-user">Usuário</label>
+      <input id="acn-gate-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="seu usuário"/>
+    </div>
+    <div class="g-field">
+      <label for="acn-gate-pass">Senha</label>
+      <div class="g-inwrap">
+        <input id="acn-gate-pass" type="password" autocomplete="current-password" placeholder="sua senha"/>
+        <button type="button" class="g-eye" id="acn-gate-eye" aria-label="Mostrar senha">👁️</button>
+      </div>
+    </div>
+    <button type="button" class="g-btn" id="acn-gate-btn">🔓 Entrar</button>
+    <div class="g-err" id="acn-gate-err"></div>
+    <div class="g-foot">Aço Naval · Calor que transforma</div>
+  </div>
+</div>
+<script>
+(function(){
+  // ── Credenciais (edite aqui para trocar) ─────────────────────────
+  var ACN_USER = 'pacifico';
+  var ACN_PASS = 'pp748748';
+  var KEY = 'acnAdmAuth_v1';
+  // ─────────────────────────────────────────────────────────────────
+  var gate = document.getElementById('acn-gate');
+  if (!gate) return;
+
+  // Sair de propósito (botão no topo do painel).
+  window.acnSair = function(){
+    if(!confirm('Sair do sistema? Este computador vai pedir usuário e senha na próxima vez.'))return;
+    try { localStorage.removeItem(KEY); } catch(e){}
+    location.reload();
+  };
+
+  // Já autenticado neste aparelho? remove a tela sem piscar.
+  try { if (localStorage.getItem(KEY) === '1') { gate.remove(); return; } } catch(e){}
+
+  // Trava a rolagem do painel atrás da tela.
+  var prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+
+  var uEl = document.getElementById('acn-gate-user');
+  var pEl = document.getElementById('acn-gate-pass');
+  var err = document.getElementById('acn-gate-err');
+  var btn = document.getElementById('acn-gate-btn');
+  var eye = document.getElementById('acn-gate-eye');
+
+  setTimeout(function(){ try{ uEl.focus(); }catch(e){} }, 60);
+
+  eye.addEventListener('click', function(){
+    var show = pEl.type === 'password';
+    pEl.type = show ? 'text' : 'password';
+    eye.textContent = show ? '🙈' : '👁️';
+    pEl.focus();
+  });
+
+  function entrar(){
+    var u = (uEl.value||'').trim().toLowerCase();
+    var p = (pEl.value||'');
+    if (u === ACN_USER && p === ACN_PASS) {
+      // Permanente neste aparelho — não pede login de novo.
+      try { localStorage.setItem(KEY, '1'); } catch(e){}
+      document.body.style.overflow = prevOverflow;
+      gate.style.transition = 'opacity .35s ease';
+      gate.style.opacity = '0';
+      setTimeout(function(){ gate.remove(); }, 360);
+    } else {
+      err.textContent = '⚠️ Usuário ou senha incorretos.';
+      gate.classList.remove('shake'); void gate.offsetWidth; gate.classList.add('shake');
+      pEl.value = ''; pEl.focus();
+    }
+  }
+  btn.addEventListener('click', entrar);
+  [uEl, pEl].forEach(function(el){
+    el.addEventListener('keydown', function(ev){ if (ev.key === 'Enter') { ev.preventDefault(); entrar(); } });
+    el.addEventListener('input', function(){ if (err.textContent) err.textContent=''; });
+  });
+})();
+</script>
+<!-- ══════════ FIM TELA DE ACESSO ══════════ -->
+
 <div class="container">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
       <h1>AÇO NAVAL</h1>
       <p class="subtitle">Gestão de Comissões e Vendas Mensais</p>
     </div>
-    <a href="/comercial/" class="btn-voltar-com" title="Voltar para o Comercial">← Comercial</a>
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="/comercial/" class="btn-voltar-com" title="Voltar para o Comercial">← Comercial</a>
+      <button class="btn-sair" onclick="acnSair()" title="Sair do sistema neste computador">Sair</button>
+    </div>
   </div>
 
   <div class="header-mes">
@@ -539,7 +726,7 @@ textarea{font-family:inherit}
       <div class="metric" style="border-left:3px solid #d0d4d8"><div class="val" id="ec-ag" style="color:#666">—</div><div class="lbl">⏳ Aguardando</div></div>
       <div class="metric" style="border-left:3px solid #EF9F27"><div class="val" id="ec-rt" style="color:#BA7517">—</div><div class="lbl">🚚 Em rota</div></div>
       <div class="metric" style="border-left:3px solid #63b922"><div class="val" id="ec-en" style="color:#3B6D11">—</div><div class="lbl">✅ Entregue</div></div>
-      <div class="metric" style="border-left:3px solid #EF9F27"><div class="val" id="ec-comag" style="color:#854F0B">—</div><div class="lbl">💰 Comissão a pagar</div></div>
+      <div class="metric" style="border-left:3px solid #EF9F27"><div class="val" id="ec-comag" style="color:#854F0B">—</div><div class="lbl" id="ec-comag-sub">💰 Comissão a pagar</div></div>
     </div>
 
     <div style="position:relative;margin-bottom:10px">
@@ -1315,6 +1502,14 @@ function comEstornoRegistro(e){
    vendedor e do vendedor.html) e registros sem `com` não geram NaN. */
 function somaComissoes(lista){
   return (lista||[]).reduce((s,p)=>s+(p.tipo==='estorno'?comEstornoRegistro(p):(Number(p.com)||0)),0);
+}
+/* Comissão TOTAL de um pedido (gid).
+   Um pedido pode ter vários registros — um por vendedor, em venda coletiva.
+   uniquePedidos() devolve só o PRIMEIRO registro de cada gid, então usar
+   p.com direto mostraria a comissão de um vendedor só. Aqui somamos todos
+   os registros do gid, usando a mesma regra de somaComissoes(). */
+function comDoGid(gid){
+  return somaComissoes(ps.filter(p=>p.gid===gid&&!p.cancelado&&p.tipo!=='estorno'));
 }
 /* Nome(s) de vendedor vinculados a um gid — 'Todos' quando é venda coletiva */
 function vendedoresDoGid(gid){
@@ -2382,12 +2577,17 @@ function renderEntregas(){
   const nAg=uniqFiltrado.filter(p=>getSt(p.gid)==='aguardando').length;
   const nRt=uniqFiltrado.filter(p=>getSt(p.gid)==='em_rota').length;
   const nEn=uniqFiltrado.filter(p=>getSt(p.gid)==='entregue').length;
-  const nComAg=uniqFiltrado.filter(p=>getComSt(p.gid)==='aguardando').length;
+  // Comissão a pagar: soma em R$ (não a contagem de pedidos) dos pedidos
+  // cuja comissão ainda está 'aguardando'.
+  const pedComAg=uniqFiltrado.filter(p=>getComSt(p.gid)==='aguardando');
+  const vComAg=pedComAg.reduce((s,p)=>s+comDoGid(p.gid),0);
   document.getElementById('ec-total').querySelector('.val').textContent=tot;
   document.getElementById('ec-ag').textContent=nAg;
   document.getElementById('ec-rt').textContent=nRt;
   document.getElementById('ec-en').textContent=nEn;
-  document.getElementById('ec-comag').textContent=nComAg;
+  document.getElementById('ec-comag').textContent=fmt(vComAg);
+  const subCom=document.getElementById('ec-comag-sub');
+  if(subCom)subCom.textContent='💰 Comissão a pagar ('+pedComAg.length+')';
 
   const el=document.getElementById('tabela-entregas');
   const busca=(document.getElementById('ent-busca')?document.getElementById('ent-busca').value:'').trim().toLowerCase();
@@ -2419,8 +2619,11 @@ function renderEntregas(){
 
   let h='<table class="ent-table"><thead><tr>'
     +'<th>Nº</th><th>Mês</th><th>Produto</th><th>Cidade</th><th>UF</th>'
-    +'<th style="text-align:right">Valor</th><th style="text-align:center">Status</th>'
-    +'<th style="text-align:center">Comissão</th>'
+    +'<th style="text-align:right">Valor</th>'
+    +'<th style="text-align:right">Comissão</th>'
+    +'<th style="text-align:center">Vendedor</th>'
+    +'<th style="text-align:center">Status</th>'
+    +'<th style="text-align:center">Pgto comissão</th>'
     +'</tr></thead><tbody>';
 
   let lastSt='';
@@ -2435,8 +2638,10 @@ function renderEntregas(){
       const stN=st==='aguardando'?nAg:st==='em_rota'?nRt:nEn;
       const bgCl=st==='aguardando'?'#f0f2f5':st==='em_rota'?'#FFF4E0':'#EAF3DE';
       const txCl=st==='aguardando'?'#555':st==='em_rota'?'#854F0B':'#3B6D11';
-      h+='<tr><td colspan="8" style="background:'+bgCl+';color:'+txCl+';font-weight:700;font-size:12px;padding:8px 14px;letter-spacing:0.3px">'
-        +STATUS_LABEL[st].toUpperCase()+' — '+stN+' pedido'+(stN!==1?'s':'')+' — '+fmt(stVal)+'</td></tr>';
+      const stCom=lista.filter(x=>getSt(x.gid)===st).reduce((s,x)=>s+comDoGid(x.gid),0);
+      h+='<tr><td colspan="10" style="background:'+bgCl+';color:'+txCl+';font-weight:700;font-size:12px;padding:8px 14px;letter-spacing:0.3px">'
+        +STATUS_LABEL[st].toUpperCase()+' — '+stN+' pedido'+(stN!==1?'s':'')+' — '+fmt(stVal)
+        +' &nbsp;•&nbsp; comissão '+fmt(stCom)+'</td></tr>';
       lastSt=st;
     }
 
@@ -2445,6 +2650,8 @@ function renderEntregas(){
     h+='<td>'+(pn?'<span class="badge-prod">'+pn.nome+'</span>':'—')+'</td>';
     h+='<td>'+p.cid+'</td><td><strong>'+p.uf+'</strong></td>';
     h+='<td style="text-align:right;font-weight:600">'+fmt(p.val)+'</td>';
+    h+='<td style="text-align:right;font-weight:700;color:#854F0B">'+fmt(comDoGid(p.gid))+'</td>';
+    h+='<td style="text-align:center;font-size:12px;color:#666">'+vendedoresDoGid(p.gid)+'</td>';
     h+='<td style="text-align:center">'
       +'<select class="status-sel '+st+'" onchange="setSt('+p.gid+',this.value);this.className=\'status-sel \'+this.value">'
       +'<option value="aguardando"'+(st==='aguardando'?' selected':'')+'>⏳ Aguardando</option>'
@@ -2465,8 +2672,11 @@ function renderEntregas(){
 
   // totais gerais
   const tvTotal=lista.reduce((s,p)=>s+p.val,0);
-  h+='<tr style="background:#003366"><td colspan="5" style="color:#fff;font-weight:700;font-size:12px;letter-spacing:0.3px">TOTAL'+(fSt?' — '+STATUS_LABEL[fSt]:'')+'</td>'
-    +'<td style="text-align:right;color:#fff;font-weight:700">'+fmt(tvTotal)+'</td><td></td><td></td></tr>';
+  const tcTotal=lista.reduce((s,p)=>s+comDoGid(p.gid),0);
+  h+='<tr class="total-row" style="background:#003366"><td colspan="5" style="color:#fff;font-weight:700;font-size:12px;letter-spacing:0.3px">TOTAL'+(fSt?' — '+STATUS_LABEL[fSt]:'')+'</td>'
+    +'<td style="text-align:right;color:#fff;font-weight:700">'+fmt(tvTotal)+'</td>'
+    +'<td style="text-align:right;color:#F2A93B;font-weight:700">'+fmt(tcTotal)+'</td>'
+    +'<td></td><td></td><td></td></tr>';
   el.innerHTML=h+'</tbody></table>';
   applyCardLabels('tabela-entregas');
 }
@@ -2484,13 +2694,15 @@ function pdfEntregas(){
     return parseInt(b.num)-parseInt(a.num);
   });
 
-  const nAg=uniq.filter(p=>getSt(p.gid)==='aguardando').length;
-  const nRt=uniq.filter(p=>getSt(p.gid)==='em_rota').length;
-  const nEn=uniq.filter(p=>getSt(p.gid)==='entregue').length;
-  const vAg=uniq.filter(p=>getSt(p.gid)==='aguardando').reduce((s,p)=>s+p.val,0);
-  const vRt=uniq.filter(p=>getSt(p.gid)==='em_rota').reduce((s,p)=>s+p.val,0);
-  const vEn=uniq.filter(p=>getSt(p.gid)==='entregue').reduce((s,p)=>s+p.val,0);
+  // Resumo por status — calculado sobre a MESMA lista impressa, para os
+  // totais dos cabeçalhos baterem com as linhas logo abaixo.
+  const porSt=st=>lista.filter(p=>getSt(p.gid)===st);
+  const nAg=porSt('aguardando').length, nRt=porSt('em_rota').length, nEn=porSt('entregue').length;
+  const vAg=porSt('aguardando').reduce((s,p)=>s+p.val,0);
+  const vRt=porSt('em_rota').reduce((s,p)=>s+p.val,0);
+  const vEn=porSt('entregue').reduce((s,p)=>s+p.val,0);
   const tvTotal=lista.reduce((s,p)=>s+p.val,0);
+  const tcTotal=lista.reduce((s,p)=>s+comDoGid(p.gid),0);
 
   let rows='';let lastSt='';
   lista.forEach(p=>{
@@ -2500,15 +2712,20 @@ function pdfEntregas(){
       const tx=st==='aguardando'?'#555':st==='em_rota'?'#854F0B':'#3B6D11';
       const stN=st==='aguardando'?nAg:st==='em_rota'?nRt:nEn;
       const stV=st==='aguardando'?vAg:st==='em_rota'?vRt:vEn;
-      rows+='<tr><td colspan="6" style="background:'+bg+';color:'+tx+';font-weight:700;font-size:11px;padding:7px 10px;letter-spacing:0.3px">'
-        +STATUS_LABEL[st].toUpperCase()+' — '+stN+' pedido'+(stN!==1?'s':'')+' — '+fmt(stV)+'</td></tr>';
+      const stC=porSt(st).reduce((s,x)=>s+comDoGid(x.gid),0);
+      rows+='<tr><td colspan="7" style="background:'+bg+';color:'+tx+';font-weight:700;font-size:11px;padding:7px 10px;letter-spacing:0.3px">'
+        +STATUS_LABEL[st].toUpperCase()+' — '+stN+' pedido'+(stN!==1?'s':'')+' — '+fmt(stV)
+        +' &nbsp;•&nbsp; comissão '+fmt(stC)+'</td></tr>';
       lastSt=st;
     }
     rows+='<tr><td>'+p.num+'</td><td>'+p.mes.substring(0,3)+'/'+p.ano+'</td>';
     rows+='<td>'+(pn?pn.nome:'—')+'</td><td>'+p.cid+'</td><td>'+p.uf+'</td>';
-    rows+='<td style="text-align:right;font-weight:600">'+fmt(p.val)+'</td></tr>';
+    rows+='<td style="text-align:right;font-weight:600">'+fmt(p.val)+'</td>';
+    rows+='<td style="text-align:right;font-weight:600;color:#854F0B">'+fmt(comDoGid(p.gid))+'</td></tr>';
   });
-  rows+='<tr style="background:#eef3fa"><td colspan="5" style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">'+fmt(tvTotal)+'</td><td></td></tr>';
+  rows+='<tr style="background:#eef3fa"><td colspan="5" style="font-weight:700">TOTAL</td>'
+    +'<td style="text-align:right;font-weight:700">'+fmt(tvTotal)+'</td>'
+    +'<td style="text-align:right;font-weight:700;color:#854F0B">'+fmt(tcTotal)+'</td></tr>';
 
   const hoje=new Date().toLocaleDateString('pt-BR');
   const w=window.open('','_blank');
@@ -2533,7 +2750,8 @@ function pdfEntregas(){
     +'<div class="bx" style="background:#FFF4E0"><div class="v" style="color:#854F0B">'+nRt+'</div><div class="l">🚚 Em rota</div><div style="font-size:11px;color:#888;margin-top:4px">'+fmt(vRt)+'</div></div>'
     +'<div class="bx" style="background:#EAF3DE"><div class="v" style="color:#3B6D11">'+nEn+'</div><div class="l">✅ Entregue</div><div style="font-size:11px;color:#888;margin-top:4px">'+fmt(vEn)+'</div></div>'
     +'</div>'
-    +'<table><thead><tr><th>Nº</th><th>Mês</th><th>Produto</th><th>Cidade</th><th>UF</th><th style="text-align:right">Valor</th></tr></thead>'
+    +'<table><thead><tr><th>Nº</th><th>Mês</th><th>Produto</th><th>Cidade</th><th>UF</th>'
+    +'<th style="text-align:right">Valor</th><th style="text-align:right">Comissão</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table>'
     +'<div class="rd">Documento gerado automaticamente — Aço Naval</div>'
     +'</body></html>');
@@ -2585,10 +2803,14 @@ function applyCardLabels(containerId, mode){
     tbl.style.minWidth='0';
     const headers=[...tbl.querySelectorAll('thead th')].map(th=>th.textContent.trim());
     tbl.querySelectorAll('tbody tr').forEach(tr=>{
-      [...tr.querySelectorAll('td')].forEach((td,i)=>{
-        // Não aplica label em células com colspan (linhas de total/grupo)
-        if(!td.colSpan||td.colSpan===1) td.setAttribute('data-label',headers[i]||'');
-        else td.setAttribute('data-label','');
+      /* O rótulo vem da COLUNA, não da posição da célula: numa linha com
+         colspan (total/grupo) as células seguintes começam mais à frente.
+         Sem isso, o total de Entregas saía rotulado como "Mês"/"Produto". */
+      let col=0;
+      [...tr.querySelectorAll('td')].forEach(td=>{
+        const span=td.colSpan||1;
+        td.setAttribute('data-label', span===1 ? (headers[col]||'') : '');
+        col+=span;
       });
     });
   });

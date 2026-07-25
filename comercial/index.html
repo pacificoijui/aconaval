@@ -57,10 +57,6 @@ body{background:#f5f7fa;color:#222;min-height:100vh}
 .card{background:#fff;border:1px solid #e0e4e8;border-radius:10px;padding:16px 20px;margin-bottom:12px}
 
 /* ── STATS ── */
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
-.stat-card{background:#f5f7fa;border-radius:8px;padding:12px 16px}
-.stat-label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;font-weight:500}
-.stat-value{font-size:20px;font-weight:700;color:#185FA5}
 
 /* ── FORMS ── */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -106,13 +102,7 @@ body{background:#f5f7fa;color:#222;min-height:100vh}
 .cat-card{background:#f8fafc;border:1px solid #e0e4e8;border-radius:8px;padding:12px 14px;margin-bottom:10px}
 .cat-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .cat-card-name{font-size:13px;font-weight:700;color:#003366}
-.cat-filtros-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;min-height:22px}
-.cat-filtro-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;border-radius:20px;font-size:11px;font-weight:600}
-.cat-filtro-chip button{background:none;border:none;color:#185FA5;cursor:pointer;font-size:11px;padding:0;line-height:1;opacity:.6}
-.cat-filtro-chip button:hover{opacity:1}
-.cat-add-filtro-row{display:flex;gap:5px;align-items:center}
 .cat-eixos{margin-top:10px;border-top:1px dashed #e0e4e8;padding-top:10px}
-.cat-eixos-label{font-size:10px;font-weight:700;color:#6B3FA0;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
 .eixo-row{background:#fff;border:1px solid #e6def5;border-radius:7px;padding:8px 9px;margin-bottom:7px}
 .eixo-row-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .eixo-nome{font-size:12px;font-weight:700;color:#5a2d91}
@@ -121,8 +111,6 @@ body{background:#f5f7fa;color:#222;min-height:100vh}
 .eixo-opc-chip button{background:none;border:none;color:#6B3FA0;cursor:pointer;font-size:11px;padding:0;line-height:1;opacity:.55}
 .eixo-opc-chip button:hover{opacity:1}
 .eixo-add-row{display:flex;gap:5px;align-items:center}
-.filtro-def-item{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f5f7fa;border-radius:6px;margin-bottom:5px}
-.filtro-def-name{flex:1;font-size:13px;font-weight:500;color:#003366}
 .filtro-add-row{display:flex;gap:6px;margin-top:6px}
 .filtro-add-row input{flex:1}
 /* ── CONJUNTOS ── */
@@ -151,8 +139,6 @@ body{background:#f5f7fa;color:#222;min-height:100vh}
 .conj-total{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#EAF3DE;border-radius:6px;margin-top:6px}
 .badge-conj{background:#E6F1FB;color:#185FA5;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;border:1px solid #B5D4F4;cursor:pointer;white-space:nowrap}
 .badge-conj:hover{background:#B5D4F4}
-.conj-info-box{background:#f0f6ff;border:1px solid #B5D4F4;border-radius:6px;padding:8px 10px;margin-top:4px}
-.conj-info-item{font-size:12px;color:#185FA5;padding:2px 0;font-weight:500}
 /* ── DRAG HANDLE ── */
 .drag-handle{cursor:grab;color:#bbb;font-size:16px;padding:0 6px;user-select:none;line-height:1}
 .drag-handle:active{cursor:grabbing}
@@ -178,7 +164,6 @@ tbody tr:hover{background:#fafbfc}
 
 /* ── CHIPS ── */
 .chip{display:inline-block;padding:2px 10px;background:#E6F1FB;color:#185FA5;border-radius:999px;font-size:11px;font-weight:600;border:1px solid #B5D4F4}
-.chip-green{background:#EAF3DE;color:#3B6D11;border-color:#C0DD97}
 .badge-cat{background:#EEEDFE;color:#534AB7;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
 
 /* ── PRICE / TOTALS ── */
@@ -202,7 +187,6 @@ tbody tr:hover{background:#fafbfc}
 .empty-icon{font-size:2rem;margin-bottom:8px;opacity:.3}
 
 /* ── KIT BOX ── */
-.kit-box{background:#EAF3DE;border:1px solid #C0DD97;border-radius:6px;padding:9px 12px;margin-top:10px;display:flex;align-items:center;justify-content:space-between}
 
 /* ── MODAL ── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;align-items:center;justify-content:center}
@@ -220,30 +204,6 @@ tbody tr:hover{background:#fafbfc}
   body>*:not(#print-view){display:none!important}
   #print-view{display:block!important;font-family:Arial,sans-serif;color:#000;background:#fff;padding:20mm}
 }
-.orcamento-preview{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#000;padding:1.5rem;border-radius:8px;font-size:.85rem;line-height:1.5}
-.ov-header{display:grid;grid-template-columns:1fr auto;gap:1rem;border:2px solid #000;padding:.75rem 1rem}
-.ov-company{font-weight:700;font-size:.9rem}
-.ov-cnpj{font-size:.75rem}
-.ov-date-cell{text-align:right;border-left:1px solid #ccc;padding-left:1rem}
-.ov-date-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px}
-.ov-date-val{font-weight:700;font-size:.9rem}
-.ov-client-row{border:2px solid #000;border-top:none;padding:.5rem 1rem;margin-bottom:1rem}
-.ov-client-label{font-size:.7rem;text-transform:uppercase;font-weight:700;color:#555}
-.ov-client-name{font-weight:700;font-size:1rem}
-.ov-section-title{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#555;margin-bottom:4px}
-.ov-table{width:100%;border-collapse:collapse;margin-bottom:.5rem}
-.ov-table th{background:#003366;color:#fff;padding:.4rem .75rem;text-align:left;font-size:.75rem;text-transform:uppercase}
-.ov-table td{border-bottom:1px solid #ddd;padding:.4rem .75rem;font-size:.82rem;vertical-align:top}
-.ov-table tr:last-child td{border-bottom:none}
-.ov-total-row{background:#f5f5f5;font-weight:700}
-.ov-total-row td{border-top:2px solid #000;font-size:.9rem}
-.ov-payment{display:grid;grid-template-columns:1fr 1fr;border:1px solid #ccc;border-radius:4px;margin-top:1rem;overflow:hidden}
-.ov-pay-cell{padding:.75rem 1rem}
-.ov-pay-cell:first-child{border-right:1px solid #ccc}
-.ov-pay-title{font-weight:700;font-size:.82rem;margin:4px 0 2px}
-.ov-pay-info{font-size:.78rem;color:#333;line-height:1.4}
-.ov-conditions{margin-top:1rem;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:.75rem 1rem;font-size:.75rem;line-height:1.5;color:#444}
-.ov-conditions-title{font-weight:700;font-size:.78rem;margin-bottom:4px;text-transform:uppercase}
 
 @media(max-width:760px){
   /* ── Topbar: logo + admin na 1ª linha, nav rolável na 2ª ── */
@@ -265,11 +225,6 @@ tbody tr:hover{background:#fafbfc}
   .sec-header .btn{flex:1;justify-content:center;text-align:center}
   /* Grids collapse */
   .grid2{grid-template-columns:1fr}
-  /* Stats: mantém 3 colunas mas compacto */
-  .grid3,.grid3.stat-grid{grid-template-columns:repeat(3,1fr);gap:6px}
-  .stat-card{padding:9px 10px}
-  .stat-label{font-size:9px;letter-spacing:.3px}
-  .stat-value{font-size:15px}
   /* Items row empilha */
   .item-row{grid-template-columns:1fr;gap:6px}
   /* Cards */
@@ -338,8 +293,6 @@ tbody tr:hover{background:#fafbfc}
   .modal-footer .btn{flex:1;justify-content:center;text-align:center;min-width:110px}
   /* Forms: evita zoom no iOS */
   .form-input,.form-select,.form-textarea{font-size:16px!important}
-  /* ov-payment */
-  .ov-payment{grid-template-columns:1fr}
   /* Novo Pedido / Orçamento: coluna lateral vira empilhada */
   #page-novo>div[style*="grid-template-columns:1fr 320px"],
   #page-novo-pedido>div[style*="grid-template-columns:1fr 320px"]{
@@ -399,11 +352,6 @@ tbody tr:hover{background:#fafbfc}
   .nav-tab{font-size:11px;padding:0 9px;height:42px}
   .page{padding:10px 8px}
   .sec-title{font-size:16px}
-  /* Stats empilhadas (uma embaixo da outra) para caber sem apertar */
-  .grid3,.grid3.stat-grid{grid-template-columns:1fr;gap:6px}
-  .stat-card{display:flex;align-items:baseline;justify-content:space-between;padding:8px 12px}
-  .stat-label{margin-bottom:0}
-  .stat-value{font-size:16px}
   /* Cards e tabelas mais justos */
   .card{padding:10px}
   th,td{padding:7px 8px;font-size:12px}
@@ -418,7 +366,9 @@ tbody tr:hover{background:#fafbfc}
 <!-- ══════════ TELA DE ACESSO (Aço Naval) ══════════
      Barreira simples de acesso. Observação: por ser 100% no navegador,
      protege contra acesso casual — quem abrir o código-fonte consegue ver
-     as credenciais. Para trocar usuário/senha, edite ACN_USER / ACN_PASS abaixo. -->
+     as credenciais. Para trocar usuário/senha, edite ACN_USER / ACN_PASS abaixo.
+     O acesso liberado fica gravado no aparelho (localStorage): loga uma vez e
+     não pede mais; outros PCs/clientes continuam barrados. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
@@ -501,8 +451,25 @@ tbody tr:hover{background:#fafbfc}
   var gate = document.getElementById('acn-gate');
   if (!gate) return;
 
-  // Já autenticado nesta sessão? remove a tela sem piscar.
-  try { if (sessionStorage.getItem(KEY) === '1') { gate.remove(); return; } } catch(e){}
+  /* Login fica salvo NESTE computador (localStorage): entra uma vez e não
+     pede mais. A barreira continua valendo para qualquer outro aparelho —
+     cliente ou PC de fora precisa das credenciais. Para sair de propósito
+     (ex.: computador emprestado), chame acnSair() no console. */
+  window.acnSair = function(){
+    try { localStorage.removeItem(KEY); } catch(e){}
+    try { sessionStorage.removeItem(KEY); } catch(e){}
+    location.reload();
+  };
+
+  // Já autenticado neste aparelho? remove a tela sem piscar.
+  try {
+    if (localStorage.getItem(KEY) === '1' || sessionStorage.getItem(KEY) === '1') {
+      // Migra quem já estava logado só na sessão para o acesso permanente.
+      try { localStorage.setItem(KEY, '1'); } catch(e){}
+      gate.remove();
+      return;
+    }
+  } catch(e){}
 
   // Trava a rolagem do app atrás da tela.
   var prevOverflow = document.body.style.overflow;
@@ -541,7 +508,8 @@ tbody tr:hover{background:#fafbfc}
     var u = (uEl.value||'').trim().toLowerCase();
     var p = (pEl.value||'');
     if (u === ACN_USER && p === ACN_PASS) {
-      try { sessionStorage.setItem(KEY, '1'); } catch(e){}
+      // Permanente neste aparelho — não pede login de novo.
+      try { localStorage.setItem(KEY, '1'); } catch(e){}
       document.body.style.overflow = prevOverflow;
       gate.style.transition = 'opacity .35s ease';
       gate.style.opacity = '0';
