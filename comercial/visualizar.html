@@ -451,6 +451,30 @@ select.fform-input{cursor:pointer}
       </div>
 
       <div class="fcard">
+        <div class="fcard-head">&#128230; Prazo de Entrega <span class="freq">*</span></div>
+        <div class="fcard-body">
+          <div class="fgrid2" style="align-items:stretch">
+            <button type="button" id="f-prazo-btn-sim" onclick="setPrazoCliente('sim')"
+              style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:2px solid #C0DD97;background:#EAF3DE;cursor:pointer;text-align:left;transition:all .15s;font-family:inherit">
+              <span style="font-size:20px">&#9989;</span>
+              <span style="font-size:13px;font-weight:700;color:#1e7a47">Posso receber a qualquer momento</span>
+            </button>
+            <button type="button" id="f-prazo-btn-nao" onclick="setPrazoCliente('nao')"
+              style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:2px solid #f09595;background:#FCEBEB;cursor:pointer;text-align:left;transition:all .15s;font-family:inherit">
+              <span style="font-size:20px">&#128679;</span>
+              <span style="font-size:13px;font-weight:700;color:#A32D2D">Ainda estou construindo</span>
+            </button>
+          </div>
+          <div class="fform-group" id="f-prazo-obs-wrap" style="margin-top:12px;margin-bottom:0;display:none">
+            <label class="fform-label">Detalhes (opcional)</label>
+            <input class="fform-input" id="f-prazo-obs" placeholder="Ex: previsão de terminar a obra em agosto" oninput="updatePrazoClienteValue()"/>
+          </div>
+          <input type="hidden" id="f-prazo" value=""/>
+          <input type="hidden" id="f-prazo-opcao" value=""/>
+        </div>
+      </div>
+
+      <div class="fcard">
         <div class="fcard-head">&#128172; Observa&#231;&#245;es</div>
         <div class="fcard-body">
           <textarea class="fform-input" id="f-obs" rows="3" placeholder="Alguma observa&#231;&#227;o sobre seu pedido? (opcional)" style="resize:vertical"></textarea>
@@ -941,6 +965,37 @@ function showForm() {
   document.getElementById('form-wrap').style.display    = 'block';
 }
 
+/* Prazo de entrega — o cliente escolhe se já pode receber ou ainda está
+   construindo. Grava no MESMO formato de texto que o painel comercial usa
+   para o campo `prazo` do pedido ("Cliente pode receber a qualquer
+   momento" / "Cliente ainda não pode receber" [+ observação]) — assim,
+   quando a solicitação virar pedido, o texto já é entendido por toda a
+   tela de comercial/index.html sem precisar de nenhum código novo lá
+   (badges verde/vermelho, PDF do orçamento, etc. já checam essas frases). */
+function setPrazoCliente(opcao) {
+  var btnSim = document.getElementById('f-prazo-btn-sim');
+  var btnNao = document.getElementById('f-prazo-btn-nao');
+  var opcaoEl = document.getElementById('f-prazo-opcao');
+  opcaoEl.value = opcao;
+  document.getElementById('f-prazo-obs-wrap').style.display = 'block';
+  if (opcao === 'sim') {
+    btnSim.style.boxShadow = '0 0 0 3px #1e7a4766'; btnSim.style.opacity = '1';
+    btnNao.style.boxShadow = ''; btnNao.style.opacity = '.45';
+  } else {
+    btnNao.style.boxShadow = '0 0 0 3px #A32D2D66'; btnNao.style.opacity = '1';
+    btnSim.style.boxShadow = ''; btnSim.style.opacity = '.45';
+  }
+  updatePrazoClienteValue();
+}
+function updatePrazoClienteValue() {
+  var opcao = document.getElementById('f-prazo-opcao').value;
+  var obs = document.getElementById('f-prazo-obs').value.trim();
+  var hidden = document.getElementById('f-prazo');
+  if (!opcao) { hidden.value = ''; return; }
+  var base = opcao === 'sim' ? 'Cliente pode receber a qualquer momento' : 'Cliente ainda não pode receber';
+  hidden.value = obs ? base + ' — ' + obs : base;
+}
+
 function toggleFDoc(tipo) {
   fDocTipo = tipo;
   var el    = document.getElementById('f-cpf');
@@ -1011,6 +1066,8 @@ async function enviarSolicitacao() {
   if (!num)    { setFStatus('⚠️ Informe o número.',true);           document.getElementById('f-num').focus();    return; }
   if (!cidade) { setFStatus('⚠️ Informe a cidade.',true);           document.getElementById('f-cidade').focus(); return; }
   if (!estado) { setFStatus('⚠️ Selecione o estado.',true);         document.getElementById('f-estado').focus(); return; }
+  var prazoVal = document.getElementById('f-prazo').value.trim();
+  if (!prazoVal) { setFStatus('⚠️ Informe se já pode receber o pedido ou ainda está construindo.',true); document.getElementById('f-prazo-btn-sim').scrollIntoView({behavior:'smooth',block:'center'}); return; }
 
   var btn = document.getElementById('btn-enviar');
   btn.disabled = true; btn.textContent = '⏳ Enviando...'; setFStatus('');
@@ -1037,6 +1094,7 @@ async function enviarSolicitacao() {
       cep:      document.getElementById('f-cep').value.trim(),
       cidade:   cidade,
       estado:   estado,
+      prazo:    prazoVal,
       obs:      document.getElementById('f-obs').value.trim(),
       email:    email,
       status:   'aguardando',

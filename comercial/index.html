@@ -4269,6 +4269,7 @@ function abrirSolic(id) {
           <div><strong>Estado:</strong> ${s.estado||'—'}</div>
           ${s.vendedorNome?`<div><strong>👤 Vendedor:</strong> ${s.vendedorNome}</div>`:''}
           <div colspan="2"><strong>Endereço:</strong> ${endereco||'—'}</div>
+          ${s.prazo?`<div colspan="2" style="grid-column:1/-1;color:${s.prazo.includes('qualquer momento')?'#1e7a47':'#A32D2D'}"><strong>${s.prazo.includes('qualquer momento')?'✅':'🚧'} Prazo:</strong> ${s.prazo}</div>`:''}
           ${s.obs?`<div colspan="2" style="grid-column:1/-1"><strong>Obs:</strong> ${s.obs}</div>`:''}
         </div>
       </div>
@@ -4338,6 +4339,10 @@ async function converterEmPedido() {
     document.getElementById('pd-estado').value = s.estado||'';
     document.getElementById('pd-obs').value    = s.obs||'';
     const _pdEmail = document.getElementById('pd-email'); if (_pdEmail) _pdEmail.value = s.email||'';
+    // Prazo de entrega: se o cliente já respondeu isso no orçamento/loja,
+    // vem pronto — não precisa selecionar de novo. restorePrazoEntrega já
+    // entende o mesmo formato de texto usado em toda a tela (verde/vermelho).
+    if (s.prazo) restorePrazoEntrega(s.prazo);
 
     // Herda o vendedor vinculado: primeiro da própria solicitação, senão do
     // orçamento de origem (o vínculo segue o fluxo até virar comissão).
