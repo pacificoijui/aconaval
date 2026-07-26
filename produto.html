@@ -1,20 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- Import map do Three.js para o visualizador 3D — mesma versão (r160) do
-     Compositor 3D (projetos/index.html), que renderiza os mesmos modelos
-     .glb corretamente. O 3D da loja usava r128 (2021) e um material que
-     deveria ter cor/textura saía preto liso nele — ficou resolvido
-     igualando a versão. O mapa não baixa nada sozinho; só é consultado
-     quando loadThree() faz o import() dinâmico, ao abrir a foto "3D". -->
-<script type="importmap">
-{
-  "imports":{
-    "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-  }
-}
-</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Aço Naval — Produto</title>
@@ -652,26 +638,26 @@ var ACN3D = (function() {
   // Antes, ~600KB de Three.js eram baixados no <head> e SEGURAVAM a página
   // inteira, mesmo pra quem nunca abria o 3D. Agora os scripts só baixam na
   // primeira vez que o cliente toca no 3D (e ficam prontos pras próximas).
-  //
-  // Carregado via import() dinâmico (ESM) em vez de <script> clássico —
-  // é a mesma versão (r160) e o mesmo mecanismo que projetos/index.html
-  // usa, necessário para acessar THREE.GLTFLoader/OrbitControls como
-  // módulos separados (r160 não os expõe mais como script solto em
-  // examples/js). THREE, GLTFLoader e OrbitControls abaixo são preenchidos
-  // aqui e usados por todo o resto deste arquivo como se fossem globais.
-  var THREE, GLTFLoader, OrbitControls;
   var _threePromise = null;
   function loadThree() {
-    if (THREE && GLTFLoader && OrbitControls) return Promise.resolve();
+    if (window.THREE && window.THREE.GLTFLoader && window.THREE.OrbitControls) return Promise.resolve();
     if (_threePromise) return _threePromise;
-    _threePromise = Promise.all([
-      import('three'),
-      import('three/addons/loaders/GLTFLoader.js'),
-      import('three/addons/controls/OrbitControls.js')
-    ]).then(function(mods) {
-      THREE = mods[0];
-      GLTFLoader = mods[1].GLTFLoader;
-      OrbitControls = mods[2].OrbitControls;
+    var urls = [
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js',
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js'
+    ];
+    _threePromise = urls.reduce(function(p, src) {
+      return p.then(function() {
+        return new Promise(function(res, rej) {
+          var sc = document.createElement('script');
+          sc.src = src;
+          sc.onload = res;
+          sc.onerror = function(){ rej(new Error('Falha ao baixar ' + src)); };
+          document.head.appendChild(sc);
+        });
+      });
+    }, Promise.resolve()).then(function() {
       if (THREE.Cache) THREE.Cache.enabled = true;  // GLB não baixa 2x ao trocar de variação
     }).catch(function(e) { _threePromise = null; throw e; });
     return _threePromise;
@@ -718,7 +704,7 @@ var ACN3D = (function() {
     // frame e a gravação sai vazia/em branco — era a causa do "gravação saiu vazia").
     var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.NoToneMapping;   // sem tonemapping → look plano/matte do SketchUp
     renderer.toneMappingExposure = 1.0;
 
@@ -728,7 +714,7 @@ var ACN3D = (function() {
     var camera = new THREE.PerspectiveCamera(45, 1, 0.01, 10000);
     camera.position.set(0, 1, 3);
 
-    var controls = new OrbitControls(camera, canvas);
+    var controls = new THREE.OrbitControls(camera, canvas);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.autoRotate = true;
@@ -770,7 +756,7 @@ var ACN3D = (function() {
     window.addEventListener('resize', resize);
 
     // Carrega o GLB
-    var loader = new GLTFLoader();
+    var loader = new THREE.GLTFLoader();
     loader.load(
       url,
       function(gltf) {
