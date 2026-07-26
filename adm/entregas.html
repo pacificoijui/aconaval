@@ -77,6 +77,17 @@ body{background:linear-gradient(160deg,#f2f5f9 0%,#e9eef5 100%);color:#222;min-h
 .step.on.rt{background:#FAEEDA;color:#854F0B}
 .step.on.en{background:#EAF3DE;color:#3B6D11}
 
+/* Stepper de pagamento da comissão — mesmo visual do stepper de status,
+   em bloco separado pra nunca confundir com o status de entrega. */
+.cs-stepper{display:flex;border:1px solid #d0d4d8;border-radius:10px;overflow:hidden;margin-bottom:8px}
+.cs-step{flex:1;text-align:center;padding:9px 4px;font-size:12px;font-weight:600;color:#888;background:#fafbfc;cursor:pointer;border-right:1px solid #e6e9ed;transition:background .15s,color .15s;user-select:none;-webkit-tap-highlight-color:transparent}
+.cs-step:last-child{border-right:none}
+.cs-step:hover{background:#f0f4f9}
+.cs-step.on.cs-ag{background:#FAEEDA;color:#854F0B}
+.cs-step.on.cs-pg{background:#EAF3DE;color:#3B6D11}
+.pg-box{background:#F3FBEF;border:1px solid #C6E6B0;border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px;color:#2E5C0E;cursor:pointer;transition:background .15s}
+.pg-box:hover{background:#EAF7E3}
+
 /* Alteração de status enviada, aguardando aprovação do administrador */
 .ped.pending{border-color:#EF9F27;box-shadow:0 0 0 2px rgba(239,159,39,.14)}
 .nota-box{background:#FFFBF3;border:1px solid #F0DBA8;border-radius:10px;padding:10px 12px;margin-top:2px;margin-bottom:10px;animation:ped-in .2s ease}
@@ -87,6 +98,27 @@ body{background:linear-gradient(160deg,#f2f5f9 0%,#e9eef5 100%);color:#222;min-h
 .empty{color:#999;font-size:13px;text-align:center;padding:40px 0;font-style:italic}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:#3B6D11;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.2);transition:transform .3s ease;z-index:300;pointer-events:none;white-space:nowrap}
 .toast.show{transform:translateX(-50%) translateY(0)}
+
+/* Segunda linha de métricas: totais de comissão */
+.metricas-com{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+.metric.cs-ag::before{background:linear-gradient(90deg,#BA7517,#EF9F27)}
+.metric.cs-ag .val{color:#854F0B}
+.metric.cs-pg::before{background:linear-gradient(90deg,#3B6D11,#63b922)}
+.metric.cs-pg .val{color:#3B6D11}
+
+/* ===== PAINEL DE PAGAMENTO DA COMISSÃO (bottom sheet) ===== */
+#cs-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:400}
+#cs-panel{display:none;position:fixed;bottom:0;left:0;right:0;z-index:401;background:#fff;border-radius:16px 16px 0 0;padding:22px 18px 28px;box-shadow:0 -6px 32px rgba(0,0,0,.18);transform:translateY(100%);transition:transform .3s ease;max-height:88vh;overflow-y:auto}
+#cs-panel h3{font-size:16px;color:#003366;margin-bottom:2px}
+#cs-panel .cs-sub{font-size:12px;color:#888;margin-bottom:16px}
+#cs-panel label{display:block;font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px}
+#cs-panel .campo{margin-bottom:14px}
+#cs-panel input,#cs-panel select{width:100%;padding:9px 11px;border:1px solid #d0d4d8;border-radius:8px;font-size:15px;background:#fff;font-family:inherit}
+#cs-panel input:focus,#cs-panel select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 2px rgba(24,95,165,.14)}
+#cs-panel .acoes{display:flex;gap:10px;margin-top:6px}
+#cs-panel .btn-ok{flex:1;padding:12px;border:none;border-radius:8px;background:#185FA5;color:#fff;font-weight:700;font-size:14px;cursor:pointer}
+#cs-panel .btn-ok:active{transform:scale(.98)}
+#cs-panel .btn-cancel{flex:1;padding:12px;border:1px solid #d0d4d8;border-radius:8px;background:#fff;color:#555;font-weight:600;font-size:14px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -106,6 +138,10 @@ body{background:linear-gradient(160deg,#f2f5f9 0%,#e9eef5 100%);color:#222;min-h
     <div class="metric ag"><div class="val" id="m-ag">—</div><div class="lbl">⏳ Aguardando</div></div>
     <div class="metric rt"><div class="val" id="m-rt">—</div><div class="lbl">🚚 Em rota</div></div>
     <div class="metric en"><div class="val" id="m-en">—</div><div class="lbl">✅ Entregue</div></div>
+  </div>
+  <div class="metricas-com">
+    <div class="metric cs-ag"><div class="val" id="m-comag">—</div><div class="lbl" id="m-comag-sub">💰 Comissão a receber</div></div>
+    <div class="metric cs-pg"><div class="val" id="m-compg">—</div><div class="lbl" id="m-compg-sub">✅ Comissão paga</div></div>
   </div>
 
   <div class="filtros">
@@ -129,6 +165,26 @@ body{background:linear-gradient(160deg,#f2f5f9 0%,#e9eef5 100%);color:#222;min-h
 
 <div class="toast" id="toast">✓ Alteração enviada</div>
 
+<!-- ═══════════ PAGAMENTO DA COMISSÃO ═══════════ -->
+<div id="cs-overlay" onclick="fecharComissaoPanel()"></div>
+<div id="cs-panel">
+  <h3>💰 Comissão paga</h3>
+  <div class="cs-sub" id="cs-panel-sub"></div>
+  <input type="hidden" id="cs-gid"/>
+  <div class="campo"><label>Data do pagamento</label><input type="date" id="cs-data"/></div>
+  <div class="campo"><label>Forma de pagamento</label>
+    <select id="cs-forma">
+      <option>Pix</option><option>Dinheiro</option><option>Transferência</option>
+      <option>Cartão</option><option>Descontado em vendas</option><option>Outro</option>
+    </select>
+  </div>
+  <div class="campo"><label>Observação (opcional)</label><input type="text" id="cs-obs" placeholder="Ex: pago junto com o adiantamento de junho"/></div>
+  <div class="acoes">
+    <button class="btn-ok" onclick="salvarComissaoPanel()">✅ Confirmar pagamento</button>
+    <button class="btn-cancel" onclick="fecharComissaoPanel()">Cancelar</button>
+  </div>
+</div>
+
 <script>
 const MS=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const STATUS_LABEL={'aguardando':'⏳ Aguardando','em_rota':'🚚 Em rota','entregue':'✅ Entregue'};
@@ -150,7 +206,7 @@ const REF = db.ref('dados');
 // Nó próprio para as propostas — fora de 'dados', imune a sobrescritas
 const APRV = db.ref('aprovacoes');
 
-let ps=[],prods=[],sts={},pends={},vs=[];
+let ps=[],prods=[],sts={},pends={},vs=[],comsts={},compag={};
 let notas={};    // texto de descrição digitado por gid (mantém o que ela escreveu entre re-renders)
 let carregou=false;
 
@@ -240,6 +296,8 @@ function comDoGid(gid){
   return ps.filter(p=>p.gid===gid&&!p.cancelado&&p.tipo!=='estorno')
            .reduce((s,p)=>s+comDoRegistro(p),0);
 }
+function getComSt(gid){return comsts[String(gid)]||'aguardando';}
+function getComPag(gid){return compag[String(gid)]||null;}
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
 /* ===== STATUS EFETIVO =====
@@ -305,6 +363,61 @@ function guardarNota(gid,el){
   APRV.child(k).update({desc: desc||null}).catch(()=>{});
 }
 
+/* ===== PAGAMENTO DA COMISSÃO =====
+   Grava direto em dados/comsts/{gid} e dados/compag/{gid} — escrita
+   granular (só essas duas chaves), igual ao padrão já usado em
+   aprovacoes/{chave}: nunca sobrescreve o restante do banco, então não há
+   risco de colidir com o que o painel administrativo estiver salvando. */
+function abrirComissaoPanel(gid){
+  const ref=uniquePedidos().find(p=>p.gid===gid);if(!ref)return;
+  document.getElementById('cs-gid').value=gid;
+  document.getElementById('cs-panel-sub').textContent='Pedido Nº '+ref.num+' — '+ref.cid+(ref.uf?'/'+ref.uf:'');
+  const info=getComPag(gid);
+  const hj=new Date();
+  document.getElementById('cs-data').value=(info&&info.data)?info.data:hj.toISOString().substring(0,10);
+  document.getElementById('cs-forma').value=(info&&info.forma)?info.forma:'Pix';
+  document.getElementById('cs-obs').value=(info&&info.obs)?info.obs:'';
+  document.getElementById('cs-overlay').style.display='block';
+  const panel=document.getElementById('cs-panel');
+  panel.style.display='block';
+  requestAnimationFrame(()=>panel.style.transform='translateY(0)');
+}
+function fecharComissaoPanel(){
+  const panel=document.getElementById('cs-panel');
+  panel.style.transform='translateY(100%)';
+  setTimeout(()=>{panel.style.display='none';document.getElementById('cs-overlay').style.display='none';},300);
+}
+function salvarComissaoPanel(){
+  const gid=parseInt(document.getElementById('cs-gid').value);
+  const pag={
+    data:document.getElementById('cs-data').value,
+    forma:document.getElementById('cs-forma').value,
+    obs:document.getElementById('cs-obs').value.trim()
+  };
+  Promise.all([
+    REF.child('comsts/'+gid).set('comissao_paga'),
+    REF.child('compag/'+gid).set(pag)
+  ]).then(()=>toast('✓ Comissão marcada como paga'))
+    .catch(()=>toast('⚠️ Falha ao salvar — verifique a conexão','#854F0B'));
+  // Aplica local na hora; o listener do REF confirma em seguida.
+  comsts[String(gid)]='comissao_paga';
+  compag[String(gid)]=pag;
+  fecharComissaoPanel();
+  render();
+}
+function marcarComissaoAguardando(gid){
+  if(getComSt(gid)==='aguardando')return;
+  if(!confirm('Voltar esta comissão para "aguardando"? Os dados de pagamento gravados serão apagados.'))return;
+  Promise.all([
+    REF.child('comsts/'+gid).set('aguardando'),
+    REF.child('compag/'+gid).remove()
+  ]).then(()=>toast('✓ Comissão voltou para aguardando'))
+    .catch(()=>toast('⚠️ Falha ao salvar — verifique a conexão','#854F0B'));
+  comsts[String(gid)]='aguardando';
+  delete compag[String(gid)];
+  render();
+}
+
 let toastTimer=null;
 function toast(msg,cor){
   const t=document.getElementById('toast');
@@ -322,6 +435,8 @@ REF.on('value',snap=>{
   prods=d.prods||[];
   sts=d.sts||{};
   vs=d.vs||[];   // vendedores: necessários para recalcular comissão sem `com`
+  comsts=d.comsts||{};
+  compag=d.compag||{};
   carregou=true;
   renderSeguro();
 });
@@ -364,6 +479,16 @@ function render(){
   document.getElementById('m-ag').textContent=nAg;
   document.getElementById('m-rt').textContent=nRt;
   document.getElementById('m-en').textContent=nEn;
+
+  // Totais de comissão (mesmo recorte de ano das métricas de status acima)
+  const pedComAg=lista.filter(p=>getComSt(p.gid)==='aguardando');
+  const pedComPg=lista.filter(p=>getComSt(p.gid)==='comissao_paga');
+  const vComAg=pedComAg.reduce((s,p)=>s+comDoGid(p.gid),0);
+  const vComPg=pedComPg.reduce((s,p)=>s+comDoGid(p.gid),0);
+  document.getElementById('m-comag').textContent=fmt(vComAg);
+  document.getElementById('m-compg').textContent=fmt(vComPg);
+  document.getElementById('m-comag-sub').textContent='💰 Comissão a receber ('+pedComAg.length+')';
+  document.getElementById('m-compg-sub').textContent='✅ Comissão paga ('+pedComPg.length+')';
 
   if(fSt)lista=lista.filter(p=>stEfetivo(p.gid)===fSt);
   if(busca)lista=lista.filter(p=>String(p.num).includes(busca)||(p.cid||'').toLowerCase().includes(busca));
@@ -408,6 +533,19 @@ function render(){
       +'<div class="step'+(st==='em_rota'?' on rt':'')+'" onclick="escolherStatus('+p.gid+',\'em_rota\')">🚚 Em rota</div>'
       +'<div class="step'+(st==='entregue'?' on en':'')+'" onclick="escolherStatus('+p.gid+',\'entregue\')">✅ Entregue</div>'
       +'</div>';
+    const cst=getComSt(p.gid);
+    const cinfo=getComPag(p.gid);
+    h+='<div class="cs-stepper">'
+      +'<div class="cs-step'+(cst==='aguardando'?' on cs-ag':'')+'" onclick="marcarComissaoAguardando('+p.gid+')">⏳ Comissão aguardando</div>'
+      +'<div class="cs-step'+(cst==='comissao_paga'?' on cs-pg':'')+'" onclick="abrirComissaoPanel('+p.gid+')">💰 Comissão paga</div>'
+      +'</div>';
+    if(cst==='comissao_paga'&&cinfo){
+      h+='<div class="pg-box" onclick="abrirComissaoPanel('+p.gid+')" title="Clique para editar">'
+        +'<b>💰 Paga</b> em '+(cinfo.data?new Date(cinfo.data+'T00:00').toLocaleDateString('pt-BR'):'—')
+        +(cinfo.forma?' · '+esc(cinfo.forma):'')
+        +(cinfo.obs?'<br>'+esc(cinfo.obs):'')
+        +'</div>';
+    }
     if(pendente){
       const nota=notas[p.gid]!=null?notas[p.gid]:(pendente.desc||'');
       h+='<div class="nota-box">'
