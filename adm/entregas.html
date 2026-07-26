@@ -173,13 +173,25 @@ function gidDerivado(num,ano){
   for(let i=0;i<s.length;i++){h=((h*33)^s.charCodeAt(i))>>>0;}
   return 1000000000+(h%1000000000);
 }
+/* Converte aceitando "1234.56", "1234,56" e "1.234,56".
+   O parse antigo fazia replace(',','.') direto, então "1.234,56" virava
+   parseFloat("1.234.56") = 1.234 — um pedido de dez mil aparecia como dez. */
+function numBR(x){
+  if(typeof x==='number')return isFinite(x)?x:NaN;
+  if(x==null)return NaN;
+  let s=String(x).trim().replace(/R\$/gi,'').replace(/\s/g,'');
+  if(!s)return NaN;
+  if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.');
+  const n=parseFloat(s);
+  return isNaN(n)?NaN:n;
+}
 function normalizar(lista){
   const norm=(lista||[]).map(p=>{
     const q=Object.assign({},p);
     if(typeof q.mes==='number'){q.mes=MS[q.mes-1]||String(q.mes);}
     else if(typeof q.mes==='string'&&/^\d{1,2}$/.test(q.mes.trim())){q.mes=MS[parseInt(q.mes,10)-1]||q.mes;}
     if(typeof q.ano==='string'&&/^\d+$/.test(q.ano.trim())){q.ano=parseInt(q.ano,10);}
-    if(typeof q.val==='string'){const n=parseFloat(q.val.replace(',','.'));if(!isNaN(n))q.val=n;}
+    {const n=numBR(q.val);q.val=isNaN(n)?0:n;}
     if(typeof q.gid==='string'&&/^\d+$/.test(q.gid.trim())){q.gid=parseInt(q.gid,10);}
     return q;
   });

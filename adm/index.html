@@ -994,8 +994,8 @@ function normalizarPedidos(lista){
     else if(typeof q.mes==='string'&&/^\d{1,2}$/.test(q.mes.trim())){q.mes=MS[parseInt(q.mes,10)-1]||q.mes;}
     // ano -> número
     if(typeof q.ano==='string'&&/^\d+$/.test(q.ano.trim())){q.ano=parseInt(q.ano,10);}
-    // val -> número
-    if(typeof q.val==='string'){const n=parseFloat(q.val.replace(',','.'));if(!isNaN(n))q.val=n;}
+    // val -> número (aceita "1.234,56", "1234,56", "1234.56")
+    {const n=numBR(q.val);q.val=isNaN(n)?0:n;}
     // meia -> boolean
     q.meia=(q.meia===true||q.meia==='true'||q.meia===1||q.meia==='1');
     // gid -> número quando possível
@@ -1006,10 +1006,18 @@ function normalizarPedidos(lista){
       if(/^\d+$/.test(t)){q.vid=parseInt(t,10);}
       else{const v2=nomeParaVid(t);if(v2!=null)q.vid=v2;}
     }
-    // com: recalcula se ausente/ inválido (integração pode não enviar)
-    const v=vs.find(x=>x.id===q.vid);
-    if(v&&(q.com==null||isNaN(Number(q.com)))){
-      q.com=parseFloat((Number(q.val)*v.perc/100*(q.meia?0.5:1)).toFixed(2));
+    /* com: normaliza e, se vier ausente ou ilegível, recalcula pela % do
+       vendedor. Antes só recalculava quando o vendedor era encontrado com
+       === estrito; qualquer divergência de tipo no id deixava a comissão
+       zerada na tela de entregas. */
+    const v=acharVend(q.vid);
+    const cn=numBR(q.com);
+    if(!isNaN(cn)){
+      q.com=cn;
+    }else if(v){
+      q.com=parseFloat((q.val*numBR(v.perc)/100*(q.meia?0.5:1)).toFixed(2));
+    }else{
+      q.com=0;   // sem vendedor e sem valor legível: 0 explícito, nunca NaN
     }
     return q;
   });
@@ -1202,7 +1210,31 @@ function carregar() {
   });
 }
 
-const fmt=v=>'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+/* Converte para número aceitando os formatos que aparecem no banco:
+   número puro, "1234.56", "1234,56" e "1.234,56" (com separador de milhar).
+   O parse antigo fazia replace(',','.') direto, então "1.234,56" virava
+   parseFloat("1.234.56") = 1.234 — um pedido de mil reais entrava como um
+   real e vinte. Devolve NaN quando não dá para converter. */
+function numBR(x){
+  if(typeof x==='number')return isFinite(x)?x:NaN;
+  if(x==null)return NaN;
+  let s=String(x).trim().replace(/R\$/gi,'').replace(/\s/g,'');
+  if(!s)return NaN;
+  // Tem vírgula: ela é o decimal, logo os pontos são separadores de milhar.
+  if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.');
+  const n=parseFloat(s);
+  return isNaN(n)?NaN:n;
+}
+/* Busca de vendedor tolerante ao tipo do id.
+   O id ora é número, ora string (depende de por onde o registro entrou), e
+   `acharVend(vid)` com === estrito falhava silenciosamente: sem
+   vendedor, a comissão não era recalculada e a tela mostrava R$ 0,00. */
+function acharVend(vid){
+  if(vid==null)return null;
+  return vs.find(x=>String(x.id)===String(vid))||null;
+}
+/* Nunca exibe "R$ NaN" — dado ruim vira R$ 0,00 em vez de sujar a tela. */
+const fmt=v=>{const n=numBR(v);return 'R$ '+(isNaN(n)?0:n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
 const ck=(m,a)=>m+'_'+a;
 const ord=c=>{const p=c.split('_');return parseInt(p[1])*100+MS.indexOf(p[0]);};
 const refMes=()=>document.getElementById('ref-mes').value;
@@ -1304,7 +1336,7 @@ function renderV(){
 }
 
 function editarVendedor(id){
-  const v=vs.find(x=>x.id===id);if(!v)return;
+  const v=acharVend(id);if(!v)return;
   document.getElementById('ev-id').value=id;
   document.getElementById('ev-nome').textContent=v.nome;
   document.getElementById('ev-perc').value=v.perc;
@@ -1330,7 +1362,7 @@ function salvarEditVendedor(){
   const pc=parseFloat(document.getElementById('ev-perc').value);
   const bn=parseFloat(document.getElementById('ev-bonus').value)||0;
   if(isNaN(pc)||pc<=0){alert('Percentual inválido.');return;}
-  const v=vs.find(x=>x.id===id);if(!v)return;
+  const v=acharVend(id);if(!v)return;
   v.perc=pc;v.bonus=bn;
   if(document.getElementById('ev-tipo'))v.tipo=document.getElementById('ev-tipo').value==='variavel'?'variavel':'fixo';
   salvar();renderV();renderRel();renderSel();
@@ -1413,7 +1445,7 @@ function alvosComissao(vidsSel){
   const map={};
   fx.forEach(v=>map[v.id]=v);
   ids.forEach(id=>{
-    const v=vs.find(x=>String(x.id)===String(id));
+    const v=acharVend(id);
     if(v&&(v.tipo||'fixo')==='variavel')map[v.id]=v; // dedup automático via chave
   });
   return Object.values(map);
@@ -1484,24 +1516,40 @@ function cancelUnique(){
 /* Estorno da comissão = valor do pedido × % atual do vendedor × fator (½ se meia).
    Calculado pela porcentagem (não pelo com gravado), p/ refletir sempre a % do pedido. */
 function comEstornoPedido(p){
-  const vv=vs.find(x=>x.id===p.vid);
+  const vv=acharVend(p.vid);
   const fator=p.meia?0.5:1;
-  return vv?parseFloat((Number(p.val)*vv.perc/100*fator).toFixed(2)):(Number(p.com)||0);
+  if(vv)return parseFloat((numBR(p.val)*numBR(vv.perc)/100*fator).toFixed(2));
+  const c=numBR(p.com);
+  return isNaN(c)?0:c;
 }
 /* Valor de um REGISTRO de estorno já lançado (tipo:'estorno').
    Recalcula por valOrig × % ATUAL do vendedor — mesma regra do vendedor.html —
    em vez de usar o `com` congelado, evitando divergência entre telas. */
 function comEstornoRegistro(e){
-  const vv=vs.find(x=>x.id===e.vid);
+  const vv=acharVend(e.vid);
   const fator=e.meia?0.5:1;
-  if(e.valOrig!=null&&vv)return -parseFloat((Number(e.valOrig)*vv.perc/100*fator).toFixed(2));
-  return -Math.abs(Number(e.com)||0);
+  // valOrig não passa pela normalização, então pode chegar como texto.
+  const vo=numBR(e.valOrig);
+  if(!isNaN(vo)&&vv)return -parseFloat((vo*numBR(vv.perc)/100*fator).toFixed(2));
+  const c=numBR(e.com);
+  return isNaN(c)?0:-Math.abs(c);
 }
 /* Soma de comissões com regra ÚNICA em todo o sistema:
    estornos são recalculados (valOrig × % atual, mesma regra do relatório do
    vendedor e do vendedor.html) e registros sem `com` não geram NaN. */
 function somaComissoes(lista){
-  return (lista||[]).reduce((s,p)=>s+(p.tipo==='estorno'?comEstornoRegistro(p):(Number(p.com)||0)),0);
+  return (lista||[]).reduce((s,p)=>s+(p.tipo==='estorno'?comEstornoRegistro(p):comDoRegistro(p)),0);
+}
+/* Comissão de um registro de venda, com rede de segurança: usa o `com`
+   gravado quando ele é legível; senão recalcula por valor × % do vendedor.
+   Sem isso, um registro com `com` ausente ou em formato estranho aparecia
+   como R$ 0,00 mesmo havendo vendedor e percentual cadastrados. */
+function comDoRegistro(p){
+  const c=numBR(p.com);
+  if(!isNaN(c))return c;
+  const v=acharVend(p.vid);
+  if(!v)return 0;
+  return parseFloat((numBR(p.val)*numBR(v.perc)/100*(p.meia?0.5:1)).toFixed(2));
 }
 /* Comissão TOTAL de um pedido (gid).
    Um pedido pode ter vários registros — um por vendedor, em venda coletiva.
@@ -1516,7 +1564,7 @@ function vendedoresDoGid(gid){
   const vids=[...new Set(ps.filter(p=>p.gid===gid&&p.tipo!=='estorno').map(p=>p.vid))];
   if(!vids.length)return '—';
   if(vs.length>1&&vids.length>=vs.length)return 'Todos';
-  return vids.map(id=>{const v=vs.find(x=>x.id===id);return v?v.nome:'?';}).join(', ');
+  return vids.map(id=>{const v=acharVend(id);return v?v.nome:'?';}).join(', ');
 }
 function cancelarPedido(gidArg){
   const gid=(gidArg!=null)?gidArg:parseInt(document.getElementById('ep-gid').value);
@@ -1535,7 +1583,7 @@ function cancelarPedido(gidArg){
   regs.forEach((p,i)=>{
     p.cancelado=true;p.cancEm=hj.toISOString();p.cancMes=cMes;p.cancAno=cAno;
     const eid='est'+stamp+'_'+i;
-    const vv=vs.find(x=>x.id===p.vid);
+    const vv=acharVend(p.vid);
     ps.push({id:eid,gid:eid,tipo:'estorno',vid:p.vid,num:p.num,cancGid:gid,
       prod:p.prod,cid:p.cid,uf:p.uf,val:0,valOrig:Number(p.val)||0,perc:vv?vv.perc:null,meia:p.meia,
       com:-comEstornoPedido(p),mes:cMes,ano:cAno,
@@ -1718,7 +1766,7 @@ function addBonus(){
   const qtd=parseInt(document.getElementById('b-qtd').value);
   const obs=document.getElementById('b-obs').value.trim()||'Números do mês';
   if(!vid||isNaN(qtd)||qtd<=0){alert('Selecione o vendedor e informe a quantidade.');return;}
-  const v=vs.find(x=>x.id===vid);
+  const v=acharVend(vid);
   if(!v||!v.bonus||v.bonus<=0){alert('Este vendedor não tem bônus por número configurado.\nConfigure em ⚙️ Configurações.');return;}
   const val=parseFloat((qtd*v.bonus).toFixed(2));
   bonus.push({id:Date.now(),vid,qtd,val,obs,mes:refMes(),ano:refAno()});
@@ -2170,7 +2218,7 @@ function buildSaldoBox(v,f,tcPed,tb,ta2,test){
 function renderRel(){
   const el=document.getElementById('rel');
   if(!vs.length){el.innerHTML='<p class="empty">Cadastre vendedores para ver os relatórios.</p>';return;}
-  const v=vs.find(x=>x.id===ta);if(!v){el.innerHTML='';return;}
+  const v=acharVend(ta);if(!v){el.innerHTML='';return;}
   const f=document.getElementById('f-mes').value;
   let mpAll=ps.filter(p=>p.vid===v.id&&!p.cancelado);if(f)mpAll=mpAll.filter(p=>ck(p.mes,p.ano)===f);
   let mp=mpAll.filter(p=>p.tipo!=='estorno');
@@ -2284,7 +2332,7 @@ function renderRel(){
 
 /* ========== PDF VENDEDOR ========== */
 function pdfVendedor(vid){
-  const v=vs.find(x=>x.id===vid);
+  const v=acharVend(vid);
   const f=document.getElementById('f-mes').value;
   let mpAll=ps.filter(p=>p.vid===vid&&!p.cancelado);if(f)mpAll=mpAll.filter(p=>ck(p.mes,p.ano)===f);
   let mp=mpAll.filter(p=>p.tipo!=='estorno');

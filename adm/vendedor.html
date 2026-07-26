@@ -185,13 +185,25 @@ function nomeParaVid(x,vsList){
   const v=(vsList||[]).find(v=>v.nome&&v.nome.toLowerCase().trim()===s);
   return v?v.id:null;
 }
+/* Converte aceitando "1234.56", "1234,56" e "1.234,56".
+   O parse antigo fazia replace(',','.') direto, então "1.234,56" virava
+   parseFloat("1.234.56") = 1.234 — e a comissão do vendedor saía errada. */
+function numBR(x){
+  if(typeof x==='number')return isFinite(x)?x:NaN;
+  if(x==null)return NaN;
+  let s=String(x).trim().replace(/R\$/gi,'').replace(/\s/g,'');
+  if(!s)return NaN;
+  if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.');
+  const n=parseFloat(s);
+  return isNaN(n)?NaN:n;
+}
 function normalizarPedidos(lista,vsList){
   return (lista||[]).map(p=>{
     const q=Object.assign({},p);
     if(typeof q.mes==='number'){q.mes=MS[q.mes-1]||String(q.mes);}
     else if(typeof q.mes==='string'&&/^\d{1,2}$/.test(q.mes.trim())){q.mes=MS[parseInt(q.mes,10)-1]||q.mes;}
     if(typeof q.ano==='string'&&/^\d+$/.test(q.ano.trim())){q.ano=parseInt(q.ano,10);}
-    if(typeof q.val==='string'){const n=parseFloat(q.val.replace(',','.'));if(!isNaN(n))q.val=n;}
+    {const n=numBR(q.val);q.val=isNaN(n)?0:n;}
     q.meia=(q.meia===true||q.meia==='true'||q.meia===1||q.meia==='1');
     if(typeof q.gid==='string'&&/^\d+$/.test(q.gid.trim())){q.gid=parseInt(q.gid,10);}
     if(q.vid!=null&&typeof q.vid==='string'){
@@ -210,13 +222,18 @@ function transferenciaSaida(mes,ano){return transfs.find(t=>t.oMes===mes&&t.oAno
 /* Estorno da comissão recalculado pela % atual do vendedor (igual à regra dos pedidos).
    Usa valOrig do pedido cancelado; cai p/ o com gravado se valOrig não existir. */
 function comDoPedido(p){
-  if(p.com!=null&&!isNaN(Number(p.com)))return Number(p.com);
-  return parseFloat((Number(p.val)*vendedor.perc/100*(p.meia?0.5:1)).toFixed(2));
+  const c=numBR(p.com);
+  if(!isNaN(c))return c;
+  if(!vendedor)return 0;
+  return parseFloat((numBR(p.val)*numBR(vendedor.perc)/100*(p.meia?0.5:1)).toFixed(2));
 }
 function comDoEstorno(e){
   const fator=e.meia?0.5:1;
-  if(e.valOrig!=null&&vendedor)return -parseFloat((Number(e.valOrig)*vendedor.perc/100*fator).toFixed(2));
-  return -Math.abs(Number(e.com)||0);
+  // valOrig não passa pela normalização, então pode chegar como texto.
+  const vo=numBR(e.valOrig);
+  if(!isNaN(vo)&&vendedor)return -parseFloat((vo*numBR(vendedor.perc)/100*fator).toFixed(2));
+  const c=numBR(e.com);
+  return isNaN(c)?0:-Math.abs(c);
 }
 /* ===== NUMERAÇÃO PRÓPRIA DE VENDAS ===========================
    Cada vendedor tem a SUA sequência: Venda 1, 2, 3... que ZERA todo
