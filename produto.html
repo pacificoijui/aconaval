@@ -1289,6 +1289,14 @@ var ACN3D = (function() {
           }
         });
         renderer.dispose();
+        /* dispose() libera texturas/geometrias/programas mas NÃO garante a
+           devolução do contexto WebGL — isso fica por conta do garbage
+           collector, que pode demorar. Como um WebGLRenderer novo é criado
+           a cada troca de foto (3D -> outra -> 3D de novo), navegar algumas
+           vezes na galeria sem isso ia acumulando contextos até estourar o
+           limite do navegador (~8-16) — e o contexto seguinte nasce preto,
+           sem erro nenhum. forceContextLoss() devolve o contexto na hora. */
+        try { renderer.forceContextLoss(); } catch(e) {}
         container.innerHTML = '';
       }
     };
