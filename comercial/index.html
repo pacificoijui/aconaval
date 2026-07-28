@@ -3273,7 +3273,12 @@ function dragDrop(e) {
   const [moved] = produtos.splice(from, 1);
   produtos.splice(to, 0, moved);
   dragSrcId = null;
-  revisarCodigos(); // reordena códigos por categoria após mover
+  // O código (ex: FOG06) é a identidade fixa do produto, atribuída na
+  // criação — não muda por causa de reordenar a vitrine. Só a ORDEM na
+  // loja muda aqui (produtos_index.ids segue a ordem deste array). Quem
+  // quiser renumerar os códigos de propósito usa o botão "Revisar
+  // códigos por categoria", que continua disponível e agora só roda
+  // quando clicado.
   save(); renderProdutos();
 }
 
