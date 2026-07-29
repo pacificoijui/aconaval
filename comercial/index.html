@@ -73,6 +73,7 @@ body{background:#f5f7fa;color:#222;min-height:100vh}
 .photo-upload-area{border:2px dashed #d0d4d8;border-radius:8px;padding:16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;background:#fafbfc}
 .photo-upload-area:hover{border-color:#185FA5;background:#f0f6ff}
 .photo-upload-area.has-photo{border-style:solid;border-color:#B5D4F4;background:#fff;padding:8px}
+.photo-upload-area.drag-over{border-color:#185FA5;border-style:solid;background:#E6F1FB;box-shadow:0 0 0 3px rgba(24,95,165,.15)}
 .photo-preview{width:100%;max-height:140px;object-fit:contain;border-radius:4px;display:block}
 .photo-thumb{width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #e0e4e8}
 
@@ -620,7 +621,7 @@ tbody tr:hover{background:#fafbfc}
         <div class="photo-upload-area" id="photo-drop" onclick="document.getElementById('inp-foto').click()">
           <div id="photo-placeholder">
             <div style="font-size:22px;margin-bottom:6px">📷</div>
-            <div style="font-size:12px;color:#888">Clique para selecionar uma foto</div>
+            <div style="font-size:12px;color:#888">Clique ou arraste uma foto aqui</div>
             <div style="font-size:11px;color:#bbb;margin-top:3px">JPG, PNG ou WEBP — máx. 2MB</div>
           </div>
           <img id="photo-preview-img" class="photo-preview" style="display:none"/>
@@ -637,7 +638,7 @@ tbody tr:hover{background:#fafbfc}
         <div class="photo-upload-area" id="projeto-drop" onclick="document.getElementById('inp-foto-projeto').click()">
           <div id="projeto-placeholder">
             <div style="font-size:22px;margin-bottom:6px">📐</div>
-            <div style="font-size:12px;color:#888">Clique para adicionar fotos do projeto</div>
+            <div style="font-size:12px;color:#888">Clique ou arraste fotos do projeto aqui</div>
             <div style="font-size:11px;color:#bbb;margin-top:3px">JPG, PNG ou WEBP — máx. 2MB cada — pode selecionar várias</div>
           </div>
         </div>
@@ -649,7 +650,7 @@ tbody tr:hover{background:#fafbfc}
         <div class="photo-upload-area" id="clientes-drop" onclick="document.getElementById('inp-foto-clientes').click()">
           <div id="clientes-placeholder">
             <div style="font-size:22px;margin-bottom:6px">📸</div>
-            <div style="font-size:12px;color:#888">Clique para adicionar fotos de clientes</div>
+            <div style="font-size:12px;color:#888">Clique ou arraste fotos de clientes aqui</div>
             <div style="font-size:11px;color:#bbb;margin-top:3px">JPG, PNG ou WEBP — máx. 2MB cada — pode selecionar várias</div>
           </div>
         </div>
@@ -666,7 +667,7 @@ tbody tr:hover{background:#fafbfc}
         <div class="photo-upload-area" id="glb-drop" onclick="document.getElementById('inp-glb').click()">
           <div id="glb-placeholder">
             <div style="font-size:22px;margin-bottom:6px">🧊</div>
-            <div style="font-size:12px;color:#888">Clique para selecionar o arquivo GLB</div>
+            <div style="font-size:12px;color:#888">Clique ou arraste o arquivo .glb aqui</div>
             <div style="font-size:11px;color:#bbb;margin-top:3px">Exportado do SketchUp — arquivo .glb</div>
           </div>
         </div>
@@ -681,7 +682,7 @@ tbody tr:hover{background:#fafbfc}
           <div class="photo-upload-area" id="photo-drop-dir" onclick="document.getElementById('inp-foto-dir').click()">
             <div id="photo-placeholder-dir">
               <div style="font-size:22px;margin-bottom:6px">📷</div>
-              <div style="font-size:12px;color:#888">Foto do lado esquerdo</div>
+              <div style="font-size:12px;color:#888">Clique ou arraste a foto do lado esquerdo aqui</div>
             </div>
             <img id="photo-preview-img-dir" class="photo-preview" style="display:none"/>
           </div>
@@ -695,7 +696,7 @@ tbody tr:hover{background:#fafbfc}
           <div class="photo-upload-area" id="projeto-drop-dir" onclick="document.getElementById('inp-foto-projeto-dir').click()">
             <div id="projeto-placeholder-dir">
               <div style="font-size:22px;margin-bottom:6px">📐</div>
-              <div style="font-size:12px;color:#888">Fotos de projeto do lado esquerdo</div>
+              <div style="font-size:12px;color:#888">Clique ou arraste fotos de projeto do lado esquerdo aqui</div>
             </div>
           </div>
           <input type="file" id="inp-foto-projeto-dir" accept="image/*" multiple style="display:none" onchange="onFotoProjetoDirChange(event)"/>
@@ -1917,6 +1918,50 @@ async function uploadGlbToStorage(prodId, file) {
   const ref = storage.ref(`modelos3d/${prodId}.glb`);
   await ref.put(file);
   return await ref.getDownloadURL();
+}
+/* Liga arrastar-e-soltar num campo de upload existente. Em vez de duplicar
+   a lógica de leitura/validação de cada campo, só monta um FileList com os
+   arquivos soltos, atribui ao <input type=file> escondido e dispara um
+   'change' de verdade — o handler de sempre (onFotoChange, onGlbChange...)
+   roda sem saber que o arquivo veio de um drop em vez de um clique. */
+function habilitarDropDeArquivo(dropId, inputId) {
+  const drop = document.getElementById(dropId);
+  const input = document.getElementById(inputId);
+  if (!drop || !input) return;
+
+  const aceita = f => {
+    const accept = (input.getAttribute('accept') || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (!accept.length) return true;
+    const nome = f.name.toLowerCase();
+    const tipo = (f.type || '').toLowerCase();
+    return accept.some(a => a.startsWith('.') ? nome.endsWith(a) : (a.endsWith('/*') ? tipo.startsWith(a.slice(0, -1)) : tipo === a));
+  };
+
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); e.stopPropagation();
+    drop.classList.add('drag-over');
+  }));
+  ['dragleave', 'dragend'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); e.stopPropagation();
+    drop.classList.remove('drag-over');
+  }));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); e.stopPropagation();
+    drop.classList.remove('drag-over');
+    const soltos = e.dataTransfer && e.dataTransfer.files;
+    if (!soltos || !soltos.length) return;
+    const validos = Array.from(soltos).filter(aceita);
+    if (!validos.length) {
+      const accept = input.getAttribute('accept') || '';
+      alert('Esse arquivo não é aceito aqui.' + (accept ? ' Formatos aceitos: ' + accept : ''));
+      return;
+    }
+    const finais = input.hasAttribute('multiple') ? validos : validos.slice(0, 1);
+    const dt = new DataTransfer();
+    finais.forEach(f => dt.items.add(f));
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 }
 function onFotoChange(e) {
   const file = e.target.files[0]; if (!file) return;
@@ -4202,6 +4247,17 @@ function copiarTexto(txt) {
 
   // Carrega vendedores da Gestão para os selects de vínculo (não bloqueia)
   carregarVendedores();
+
+  // Arrastar e soltar nos campos de foto/GLB do produto — reaproveita os
+  // mesmos <input type=file> e handlers de sempre (dispara um evento
+  // 'change' de verdade neles), então nenhuma lógica de upload precisou
+  // mudar por causa disso.
+  habilitarDropDeArquivo('photo-drop', 'inp-foto');
+  habilitarDropDeArquivo('projeto-drop', 'inp-foto-projeto');
+  habilitarDropDeArquivo('clientes-drop', 'inp-foto-clientes');
+  habilitarDropDeArquivo('glb-drop', 'inp-glb');
+  habilitarDropDeArquivo('photo-drop-dir', 'inp-foto-dir');
+  habilitarDropDeArquivo('projeto-drop-dir', 'inp-foto-projeto-dir');
 })();
 
 // ── SOLICITAÇÕES ──────────────────────────────────────────────────
