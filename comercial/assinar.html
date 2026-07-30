@@ -1026,8 +1026,7 @@ async function confirmarPedido() {
     document.getElementById('suc-num').textContent = `Pedido #${String(pedidoAtual.num).padStart(3,'0')}`;
     document.getElementById('suc-detail').innerHTML = `
       <strong>✍️ Assinado por:</strong> ${nome}<br>
-      <strong>📅 Data/Hora:</strong> ${new Date().toLocaleString('pt-BR')}<br>
-      <strong>📦 Total:</strong> ${fmtBRL(pedidoAtual.subtotal)}
+      <strong>📅 Data/Hora:</strong> ${new Date().toLocaleString('pt-BR')}
     `;
     showScreen('sucesso');
 
