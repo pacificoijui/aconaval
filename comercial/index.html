@@ -2477,17 +2477,14 @@ function copiarOrcamentoWhatsApp(id, btnEl) {
   const link = 'https://loja.contato-aconaval.workers.dev/?id=' + id;
   const preco = Number(prod.preco) || 0;
   const fmt = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const texto = `*${prod.nome}:*
-
-Valor total: R$ ${fmt(preco)}
+  // Sem o nome do produto no texto: o link do workers já mostra o nome
+  // na prévia (og:title) quando cola no WhatsApp.
+  const texto = `Valor total: R$ ${fmt(preco)}
 Em 12 vezes sem juros no cartão de R$ ${fmt(preco / 12)}
-
 Pagamento à vista com desconto de 10%: R$ ${fmt(preco * 0.9)}
-
 
 *Frete grátis, pague somente ao receber*
 *Já acompanha os canos*
-
 
 Link para fechar a encomenda: ${link}`;
 
