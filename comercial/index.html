@@ -2477,9 +2477,8 @@ function copiarOrcamentoWhatsApp(id, btnEl) {
   const link = 'https://loja.contato-aconaval.workers.dev/?id=' + id;
   const preco = Number(prod.preco) || 0;
   const fmt = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  // Sem o nome do produto no texto: o link do workers já mostra o nome
-  // na prévia (og:title) quando cola no WhatsApp.
-  const texto = `💰 Valor total: *R$ ${fmt(preco)}*
+  const texto = `*${prod.nome}*
+
 💳 Em 12x sem juros no cartão: *R$ ${fmt(preco / 12)}*
 💵 À vista com 10% de desconto: *R$ ${fmt(preco * 0.9)}*
 
