@@ -1306,6 +1306,7 @@ let eixosDef = {};        // ex: { "Fogões": [{nome:"Comprimento",opcoes:["130 
 let filtrosAtivos = {};   // ex: {"Largura":"70cm"}
 let categorias = [];      // ex: ["Fogão", "Chaminé", "Churrasqueira"]
 let catPrefixes = {};     // ex: {"Fogão":"FOG","Chaminé":"CHAM","Conjunto":"CONJ"}
+let catFotos = {};        // foto de capa por categoria, chave = slugCatWorker(cat): { "fogoes": "data:image/jpeg;base64,..." }
 
 // Paleta de cores para os filtros (cicla pelo índice)
 const FILTRO_CORES = [
@@ -1493,11 +1494,12 @@ async function save() {
 async function loadFromFirebase() {
   setStatus('⏳ Carregando…');
   try {
-    const [idxSnap, orcSnap, pedColSnap, cfgSnap] = await Promise.all([
+    const [idxSnap, orcSnap, pedColSnap, cfgSnap, catFotosSnap] = await Promise.all([
       db.collection('acn').doc('produtos_index').get(),
       db.collection('acn').doc('orcamentos').get(),
       db.collection('acn_pedidos').get(),
-      db.collection('acn').doc('config').get()
+      db.collection('acn').doc('config').get(),
+      db.collection('acn_cat_fotos').get()
     ]);
 
     if (idxSnap.exists) {
@@ -1565,6 +1567,8 @@ async function loadFromFirebase() {
       categorias = cfgSnap.data().categorias || [];
       catPrefixes = cfgSnap.data().catPrefixes || {};
     }
+    catFotos = {};
+    catFotosSnap.docs.forEach(d => { catFotos[d.id] = d.data().foto; });
     // Migração: se não há categorias salvas, extrai dos produtos existentes
     if (!categorias.length && produtos.length) {
       categorias = [...new Set(produtos.map(p=>p.cat).filter(Boolean))];
@@ -1593,6 +1597,7 @@ async function loadFromFirebase() {
     if (Array.isArray(eixosDef)) eixosDef = {};
     categorias = JSON.parse(localStorage.getItem('acn_categorias') || '[]');
     catPrefixes = JSON.parse(localStorage.getItem('acn_cat_prefixes') || '{}');
+    catFotos = JSON.parse(localStorage.getItem('acn_cat_fotos') || '{}');
     if (!categorias.length && produtos.length) {
       categorias = [...new Set(produtos.map(p=>p.cat).filter(Boolean))];
     }
@@ -2770,9 +2775,17 @@ function renderFiltrosDefPanel(){
       const fs = filtrosDef[cat] || [];
       const prefix = catPrefixes[cat] || '';
       const slug = slugify(cat);
+      const catSlugWorker = slugCatWorker(cat);
+      const fotoCat = catFotos[catSlugWorker] || '';
       return `<div class="cat-card">
         <div class="cat-card-header">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label class="cat-foto-thumb" title="Foto de capa desta categoria — aparece na prévia do link de WhatsApp (ex: 'clique aqui pra ver os fogões')"
+              style="width:28px;height:28px;border-radius:6px;border:1px solid #cdd5e0;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;flex-shrink:0;background:#f5f5f5">
+              ${fotoCat ? `<img src="${fotoCat}" style="width:100%;height:100%;object-fit:cover;display:block">` : `<span style="font-size:14px">🖼️</span>`}
+              <input type="file" accept="image/*" style="display:none" onchange="onCatFotoChange('${cat.replace(/'/g,"\\'")}', this)">
+            </label>
+            ${fotoCat ? `<button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:11px;color:#a32d2d;border-color:#f0c5c5" onclick="removeCatFoto('${cat.replace(/'/g,"\\'")}')" title="Remover foto de capa">🗑 foto</button>` : ''}
             <span class="cat-card-name">📂 ${cat}</span>
             ${prefix
               ? `<span style="background:#E6F1FB;border:1px solid #B5D4F4;color:#185FA5;font-size:11px;font-weight:700;padding:1px 8px;border-radius:10px;letter-spacing:.5px">${prefix}01, ${prefix}02…</span>`
@@ -2881,6 +2894,17 @@ function saveCategoriaNome(catAntigo){
   // Migra catPrefixes
   if(catPrefixes[catAntigo]) { catPrefixes[novoNome] = catPrefixes[catAntigo]; delete catPrefixes[catAntigo]; }
 
+  // Migra a foto de capa (fica salva por slug — precisa mover de doc no Firestore)
+  const slugAntigo = slugCatWorker(catAntigo), slugNovo = slugCatWorker(novoNome);
+  if (catFotos[slugAntigo]) {
+    catFotos[slugNovo] = catFotos[slugAntigo];
+    delete catFotos[slugAntigo];
+    if (db) {
+      db.collection('acn_cat_fotos').doc(slugNovo).set({ foto: catFotos[slugNovo], cat: novoNome }).catch(e=>console.error(e));
+      db.collection('acn_cat_fotos').doc(slugAntigo).delete().catch(e=>console.error(e));
+    }
+  }
+
   // Atualiza todos os produtos que usavam o nome antigo
   let mudouProd = false;
   produtos.forEach(p => { if(p.cat === catAntigo) { p.cat = novoNome; mudouProd = true; } });
@@ -2901,11 +2925,42 @@ function removeCategoria(cat){
     delete filtrosDef[cat];
     delete eixosDef[cat];   // sem isto, a migração recriava os filtros da categoria a partir dos eixos antigos
     delete catPrefixes[cat];
+    const slugDaCat = slugCatWorker(cat);
+    delete catFotos[slugDaCat];
+    if (db) db.collection('acn_cat_fotos').doc(slugDaCat).delete().catch(()=>{});
     renderFiltrosDefPanel();
     renderFiltrosExtrasForm();
     saveConfig();
     renderProdutos();
   });
+}
+
+// Foto de capa da categoria: usada pelo Worker (loja.contato-aconaval.workers.dev)
+// como og:image do link "?cat=..." — sem ela, o Worker usa a foto do primeiro
+// produto da categoria. Fica em coleção própria (acn_cat_fotos), não no doc de
+// config, pra não arriscar estourar o limite de 1MB por documento do Firestore.
+async function onCatFotoChange(cat, inputEl) {
+  const file = inputEl.files[0]; if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { alert('Foto muito grande. Use uma imagem até 5MB.'); inputEl.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    const comprimida = await comprimirFoto(ev.target.result, 150, 1000);
+    const slug = slugCatWorker(cat);
+    catFotos[slug] = comprimida;
+    renderFiltrosDefPanel();
+    try {
+      if (db) await db.collection('acn_cat_fotos').doc(slug).set({ foto: comprimida, cat });
+    } catch(e) { console.error('Erro ao salvar foto da categoria', e); alert('Erro ao salvar a foto. Tente de novo.'); }
+  };
+  reader.readAsDataURL(file);
+  inputEl.value = '';
+}
+
+async function removeCatFoto(cat) {
+  const slug = slugCatWorker(cat);
+  delete catFotos[slug];
+  renderFiltrosDefPanel();
+  try { if (db) await db.collection('acn_cat_fotos').doc(slug).delete(); } catch(e) { console.error(e); }
 }
 
 function addFiltroDef(cat){
