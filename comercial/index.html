@@ -544,6 +544,7 @@ tbody tr:hover{background:#fafbfc}
     <button class="nav-tab" onclick="irNovoPedido()" data-page="novo-pedido">🛒 Novo Pedido</button>
     <button class="nav-tab" onclick="showPage('lista-pedidos')" id="nav-pedidos" data-page="lista-pedidos">📦 Pedidos <span class="badge" id="badge-pedidos">0</span></button>
     <button class="nav-tab" onclick="showPage('depoimentos')" data-page="depoimentos">💬 Depoimentos</button>
+    <button class="nav-tab" onclick="showPage('videos')" data-page="videos">🎬 Vídeos</button>
   </nav>
   <span id="fb-status" class="fb-status">⏳ Conectando…</span>
 </div>
@@ -874,6 +875,40 @@ tbody tr:hover{background:#fafbfc}
 
   <div id="dep-lista">
     <div class="empty"><div class="empty-icon">💬</div><p>Nenhum depoimento cadastrado ainda.</p></div>
+  </div>
+</div>
+
+<!-- PAGE: VÍDEOS -->
+<div class="page" id="page-videos">
+  <div class="sec-header">
+    <div class="sec-title">Vídeos <small>Vídeos por categoria — aparecem na loja e na página de cada produto da categoria</small></div>
+    <button class="btn btn-ghost btn-sm" onclick="carregarVideos()">🔄 Atualizar</button>
+  </div>
+
+  <div style="background:#f0f6ff;border:1px solid #B5D4F4;border-radius:10px;padding:14px 16px;margin-bottom:18px">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+      <div style="flex:1;min-width:200px">
+        <label class="form-label" style="display:block;margin-bottom:5px">Categoria do vídeo</label>
+        <select id="vid-cat" style="width:100%;padding:9px 11px;border:1px solid #B5D4F4;border-radius:8px;font-size:14px;background:#fff;cursor:pointer"></select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label class="form-label" style="display:block;margin-bottom:5px">Título <span style="font-weight:400;color:#7a8aa0">(opcional)</span></label>
+        <input id="vid-titulo" class="form-input" placeholder="Ex: Fogão Campeiro em uso" maxlength="70" style="width:100%">
+      </div>
+      <div>
+        <input type="file" id="vid-file" accept="video/*" multiple style="display:none" onchange="onVidFiles(this)">
+        <button class="btn btn-success" onclick="if(document.getElementById('vid-cat').value){document.getElementById('vid-file').click()}else{alert('Escolha a categoria antes de adicionar vídeos.')}">➕ Adicionar vídeos</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#7a8aa0;margin-top:8px">A capa do vídeo é gerada automaticamente a partir do primeiro quadro. Use vídeos em MP4 de até 100MB — grave na horizontal ou na vertical, o player se adapta.</div>
+    <div id="vid-upload-status" style="font-size:12px;color:#185FA5;margin-top:8px;display:none;font-weight:600"></div>
+    <div id="vid-upload-bar-wrap" style="display:none;margin-top:6px;height:6px;background:#dbe7f5;border-radius:4px;overflow:hidden">
+      <div id="vid-upload-bar" style="height:100%;width:0%;background:#185FA5;transition:width .2s"></div>
+    </div>
+  </div>
+
+  <div id="vid-lista">
+    <div class="empty"><div class="empty-icon">🎬</div><p>Nenhum vídeo cadastrado ainda.</p></div>
   </div>
 </div>
 
@@ -1708,6 +1743,201 @@ async function toggleDepAtivo(id, novoAtivo){
   catch(e){ console.error(e); alert('Erro ao atualizar.'); }
 }
 
+// ── VÍDEOS POR CATEGORIA ──────────────────────────────────────────
+// O arquivo do vídeo vai pro Firebase Storage (videos/{id}.mp4) — não cabe no
+// Firestore, que limita cada documento a 1MB. No Firestore fica só o registro
+// (categoria, título, URL do arquivo e a capa em base64). A capa é extraída de
+// um quadro do próprio vídeo: sem ela o navegador teria que baixar o vídeo
+// inteiro só pra mostrar a miniatura na loja.
+let videos = [];
+
+function populateVidCatSelect(){
+  const sel = document.getElementById('vid-cat');
+  if(!sel) return;
+  const atual = sel.value;
+  sel.innerHTML = (categorias && categorias.length)
+    ? categorias.map(c => `<option value="${c}"${atual===c?' selected':''}>${c}</option>`).join('')
+    : '<option value="">Crie uma categoria primeiro</option>';
+}
+
+async function carregarVideos(){
+  const wrap = document.getElementById('vid-lista');
+  if(!wrap) return;
+  if(typeof db === 'undefined' || !db){ wrap.innerHTML = '<div class="empty"><p>Sem conexão com o banco.</p></div>'; return; }
+  wrap.innerHTML = '<div style="padding:24px;color:#888;font-size:13px">Carregando vídeos…</div>';
+  try{
+    const snap = await db.collection('acn_videos').get();
+    videos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+                      .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+    renderVideosAdmin();
+  }catch(e){
+    console.error('videos:', e);
+    wrap.innerHTML = '<div class="empty"><p>Erro ao carregar vídeos.</p></div>';
+  }
+}
+
+function renderVideosAdmin(){
+  const wrap = document.getElementById('vid-lista');
+  if(!wrap) return;
+  if(!videos.length){
+    wrap.innerHTML = '<div class="empty"><div class="empty-icon">🎬</div><p>Nenhum vídeo cadastrado ainda. Escolha a categoria acima e adicione os vídeos.</p></div>';
+    return;
+  }
+  const grupos = {};
+  videos.forEach(v => { const c = v.cat || '(sem categoria)'; (grupos[c] = grupos[c] || []).push(v); });
+  const cats = (categorias || []).filter(c => grupos[c]);
+  Object.keys(grupos).forEach(c => { if(!cats.includes(c)) cats.push(c); });
+  wrap.innerHTML = cats.map(cat => {
+    const itens = grupos[cat];
+    const cards = itens.map(v => `
+      <div style="border:1px solid #e0e4e8;border-radius:10px;overflow:hidden;background:#fff${v.ativo===false?';opacity:.55':''}">
+        <div style="background:#0b141a;position:relative;aspect-ratio:16/10">
+          <video src="${v.url}" ${v.poster?`poster="${v.poster}"`:''} preload="none" controls playsinline
+                 style="width:100%;height:100%;object-fit:contain;display:block"></video>
+        </div>
+        ${v.titulo ? `<div style="padding:7px 9px 0;font-size:12px;font-weight:600;color:#003366;line-height:1.3">${escHtml(v.titulo)}</div>` : ''}
+        <div style="display:flex;gap:6px;padding:7px 8px">
+          <button class="btn btn-ghost btn-sm" style="flex:1;color:#c0392b;border-color:#f0c4be" onclick="deleteVideo('${v.id}')">🗑️ Excluir</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="toggleVidAtivo('${v.id}', ${v.ativo===false})">${v.ativo===false?'🚫 Oculto':'✅ Visível'}</button>
+        </div>
+      </div>`).join('');
+    return `<div style="margin-bottom:24px">
+      <div style="font-size:14px;font-weight:700;color:#003366;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${cat} <span style="font-weight:400;color:#aaa;font-size:12px">${itens.length} ${itens.length===1?'vídeo':'vídeos'}</span>
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;color:#185FA5;border-color:#B5D4F4"
+          onclick="copiarLinkVideos('${cat.replace(/'/g,"\\'")}', this)"
+          title="Copiar o link que abre direto os vídeos desta categoria na loja">🔗 Link dos vídeos</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px">${cards}</div>
+    </div>`;
+  }).join('');
+}
+
+// Link público que abre a loja já na aba de vídeos, filtrada nessa categoria.
+function copiarLinkVideos(cat, btnEl){
+  const link = 'https://www.aconaval.com/#videos/' + encodeURIComponent(cat);
+  const original = btnEl ? btnEl.innerHTML : '';
+  copiarTexto(link).then(ok => {
+    if(btnEl){
+      btnEl.innerHTML = ok ? '✅ Copiado!' : '⚠️ Copie manualmente';
+      setTimeout(()=>{ btnEl.innerHTML = original; }, 1600);
+    }
+    if(!ok) prompt('Copie o link (Ctrl+C):', link);
+  });
+}
+
+// Captura um quadro do vídeo pra servir de capa. Tenta 1s pra dentro — o
+// primeiro quadro costuma ser preto/escuro em vídeo de celular.
+function gerarPosterDoVideo(file){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata'; v.muted = true; v.playsInline = true;
+    const limpar = () => { try{ URL.revokeObjectURL(url); }catch(_){} };
+    const falhou = () => { limpar(); resolve(''); };
+    v.onerror = falhou;
+    v.onloadedmetadata = () => {
+      const alvo = Math.min(1, (v.duration || 0) / 2);
+      const capturar = () => {
+        try{
+          const c = document.createElement('canvas');
+          c.width = v.videoWidth; c.height = v.videoHeight;
+          if(!c.width || !c.height){ falhou(); return; }
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          limpar();
+          resolve(c.toDataURL('image/jpeg', 0.82));
+        }catch(e){ falhou(); }
+      };
+      v.onseeked = capturar;
+      try { v.currentTime = alvo; } catch(e) { capturar(); }
+    };
+    v.src = url;
+    setTimeout(falhou, 12000); // não trava o upload se o navegador não decodificar
+  });
+}
+
+async function onVidFiles(input){
+  const cat = document.getElementById('vid-cat').value;
+  if(!cat){ alert('Escolha a categoria antes de adicionar vídeos.'); input.value=''; return; }
+  if(!storage){ alert('Firebase Storage não inicializado — recarregue a página.'); input.value=''; return; }
+  const files = Array.from(input.files || []);
+  if(!files.length) return;
+  const tituloInp = document.getElementById('vid-titulo');
+  const tituloBase = (tituloInp.value || '').trim();
+  const status = document.getElementById('vid-upload-status');
+  const barWrap = document.getElementById('vid-upload-bar-wrap');
+  const bar = document.getElementById('vid-upload-bar');
+  status.style.display = 'block';
+  barWrap.style.display = 'block';
+  let ok = 0;
+
+  for(let i=0;i<files.length;i++){
+    const file = files[i];
+    const rotulo = files.length > 1 ? `Vídeo ${i+1} de ${files.length}` : 'Vídeo';
+    if(file.size > 100 * 1024 * 1024){
+      status.textContent = `⚠️ "${file.name}" passa de 100MB e foi pulado.`;
+      continue;
+    }
+    try{
+      status.textContent = `${rotulo}: gerando a capa…`;
+      bar.style.width = '0%';
+      let poster = await gerarPosterDoVideo(file);
+      if(poster) poster = await comprimirFoto(poster, 120, 800);
+
+      const docRef = db.collection('acn_videos').doc();
+      const ext = (file.name.match(/\.[a-z0-9]+$/i) || ['.mp4'])[0].toLowerCase();
+      const caminho = `videos/${docRef.id}${ext}`;
+      const task = storage.ref(caminho).put(file, { contentType: file.type || 'video/mp4' });
+
+      await new Promise((resolve, reject) => {
+        task.on('state_changed',
+          s => {
+            const pct = s.totalBytes ? (s.bytesTransferred / s.totalBytes) * 100 : 0;
+            bar.style.width = pct.toFixed(1) + '%';
+            status.textContent = `${rotulo}: enviando… ${pct.toFixed(0)}%`;
+          },
+          reject, resolve);
+      });
+
+      const url = await storage.ref(caminho).getDownloadURL();
+      const agora = Date.now();
+      const titulo = files.length > 1 && tituloBase ? `${tituloBase} ${i+1}` : tituloBase;
+      await docRef.set({ cat, url, poster: poster || '', titulo, storagePath: caminho, ativo:true, criadoEm: agora });
+      ok++;
+    }catch(e){
+      console.error('upload video:', e);
+      status.textContent = `⚠️ Erro ao enviar "${file.name}": ${e && e.message ? e.message : 'tente de novo.'}`;
+    }
+  }
+
+  if(ok) status.textContent = `✅ ${ok} vídeo(s) adicionado(s) em "${cat}".`;
+  barWrap.style.display = 'none';
+  bar.style.width = '0%';
+  input.value = '';
+  tituloInp.value = '';
+  await carregarVideos();
+  setTimeout(() => { status.style.display = 'none'; }, 5000);
+}
+
+async function deleteVideo(id){
+  if(!confirm('Excluir este vídeo? Essa ação não pode ser desfeita.')) return;
+  const vid = videos.find(v => v.id === id);
+  try{
+    // Apaga o arquivo do Storage antes do registro: se sobrar só o arquivo,
+    // ele fica ocupando espaço sem nada apontando pra ele.
+    if(vid && vid.storagePath && storage){
+      await storage.ref(vid.storagePath).delete().catch(e => console.warn('arquivo já removido:', e.code));
+    }
+    await db.collection('acn_videos').doc(id).delete();
+    await carregarVideos();
+  }catch(e){ console.error(e); alert('Erro ao excluir.'); }
+}
+
+async function toggleVidAtivo(id, novoAtivo){
+  try{ await db.collection('acn_videos').doc(id).update({ ativo: novoAtivo }); await carregarVideos(); }
+  catch(e){ console.error(e); alert('Erro ao atualizar.'); }
+}
+
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('[data-page]').forEach(b => b.classList.remove('active'));
@@ -1723,6 +1953,7 @@ function showPage(name) {
   if (name === 'lista-pedidos') renderListaPedidos();
   if (name === 'solicitacoes') carregarSolicitacoes();
   if (name === 'depoimentos') { populateDepCatSelect(); carregarDepoimentos(); }
+  if (name === 'videos') { populateVidCatSelect(); carregarVideos(); }
 }
 // Roda do mouse na faixa de abas costuma rolar na vertical — converte para
 // rolagem horizontal aqui, já que em telas reduzidas o menu nem sempre cabe.

@@ -425,6 +425,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <span>💳 <strong>12x sem juros</strong> no cartão</span>
   </div>
   <div style="display:flex;gap:10px;align-items:center">
+    <button class="cart-btn" id="vid-nav-btn" onclick="showVideos()" style="display:none;background:rgba(255,255,255,.14)">
+      🎬 <span class="label">VÍDEOS</span>
+    </button>
     <button class="cart-btn" id="dep-nav-btn" onclick="showDepoimentos()" style="display:none;background:rgba(255,255,255,.14)">
       💬 <span class="label">DEPOIMENTOS</span>
     </button>
@@ -553,6 +556,52 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div id="dep-empty" style="display:none;text-align:center;color:var(--muted);padding:48px 0">Nenhum depoimento nesta categoria ainda.</div>
   </div>
 
+  <!-- VÍDEOS VIEW -->
+  <style>
+    .vid-card{break-inside:avoid;margin-bottom:16px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.07);transition:transform .15s,box-shadow .15s}
+    .vid-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.14)}
+    .vid-thumb{position:relative;background:#0b141a;aspect-ratio:16/10;display:block}
+    .vid-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .vid-thumb .vid-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:38px;color:rgba(255,255,255,.5)}
+    .vid-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .vid-play span{width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;padding-left:4px;transition:transform .15s}
+    .vid-card:hover .vid-play span{transform:scale(1.1);background:rgba(24,95,165,.85)}
+    .vid-cap{padding:10px 12px;font-size:13.5px;font-weight:600;color:var(--navy);line-height:1.35}
+    .vid-cap small{display:block;font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px}
+  </style>
+  <div id="vid-view" style="display:none">
+    <div style="margin:6px 0 16px">
+      <button class="btn btn-ghost" onclick="backToCatalogFromVid()" style="font-size:13px">← Voltar ao Catálogo</button>
+    </div>
+    <div class="section-head">
+      <div class="section-title">
+        Vídeos
+        <small id="vid-count-label"></small>
+      </div>
+    </div>
+    <p style="color:var(--muted);font-size:14px;margin:-4px 0 16px">Veja os produtos de perto, em funcionamento e por todos os ângulos.</p>
+    <div class="cat-bar"><div class="cat-row" id="vid-cat-row"></div></div>
+    <div id="vid-grid" style="columns:280px;column-gap:16px;margin-top:14px"></div>
+    <div id="vid-empty" style="display:none;text-align:center;color:var(--muted);padding:48px 0">Nenhum vídeo nesta categoria ainda.</div>
+  </div>
+
+</div>
+
+<!-- PLAYER DE VÍDEO -->
+<style>
+  .vidlb{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+  .vidlb.open{display:flex}
+  .vidlb-box{max-width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:10px;align-items:center}
+  .vidlb-box video{max-width:92vw;max-height:78vh;border-radius:10px;background:#000;display:block}
+  .vidlb-title{color:#fff;font-size:14px;text-align:center;max-width:92vw}
+  .vidlb-close{position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:9px;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:20px;cursor:pointer;z-index:2}
+</style>
+<div class="vidlb" id="vidlb" onclick="if(event.target===this)closeVidLb()">
+  <button class="vidlb-close" onclick="closeVidLb()" aria-label="Fechar">✕</button>
+  <div class="vidlb-box">
+    <video id="vidlb-player" controls playsinline preload="metadata"></video>
+    <div class="vidlb-title" id="vidlb-title"></div>
+  </div>
 </div>
 
 <!-- DEPOIMENTOS LIGHTBOX -->
@@ -1163,6 +1212,7 @@ function depHashAtual(){
 function showDepoimentos(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
+  document.getElementById('vid-view').style.display = 'none';
   document.getElementById('dep-view').style.display = 'block';
   renderDepCategories();
   renderDepGrid();
@@ -1180,13 +1230,18 @@ function backToCatalogFromDep(pularHistorico){
     try { history.pushState({}, '', location.pathname + location.search); } catch(e) {}
   }
 }
-// Botão voltar do navegador entra/sai dos depoimentos naturalmente
+// Botão voltar do navegador entra/sai dos depoimentos e dos vídeos naturalmente
 window.addEventListener('popstate', () => {
   if (location.hash.indexOf('#depoimentos') === 0) {
     aplicarFiltroDoHash();
     showDepoimentos(true);
+  } else if (location.hash.indexOf('#videos') === 0) {
+    aplicarFiltroVidDoHash();
+    showVideos(true);
   } else if (document.getElementById('dep-view').style.display === 'block') {
     backToCatalogFromDep(true);
+  } else if (document.getElementById('vid-view').style.display === 'block') {
+    backToCatalogFromVid(true);
   }
 });
 function aplicarFiltroDoHash(){
@@ -1246,8 +1301,117 @@ function closeDepLb(){
   document.body.style.overflow = '';
 }
 
+// ── VÍDEOS ───────────────────────────────────────────────────────
+let videos = [];
+let vidFiltro = 'Todos';
+
+async function loadVideos(){
+  try{
+    const snap = await db.collection('acn_videos').get();
+    videos = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(v => v.url);
+  }catch(e){ console.error('videos:', e); videos = []; }
+  const btn = document.getElementById('vid-nav-btn');
+  if(btn) btn.style.display = videos.some(v => v.ativo !== false) ? 'flex' : 'none';
+  if(document.getElementById('vid-view').style.display === 'block'){ renderVidCategories(); renderVidGrid(); }
+  // Link direto: aconaval.com/#videos (ou #videos/<categoria>) abre a tela na hora
+  if (location.hash.indexOf('#videos') === 0) {
+    aplicarFiltroVidDoHash();
+    showVideos(true);
+  }
+}
+
+function vidHashAtual(){
+  return '#videos' + (vidFiltro && vidFiltro !== 'Todos' ? '/' + encodeURIComponent(vidFiltro) : '');
+}
+function aplicarFiltroVidDoHash(){
+  const m = location.hash.match(/^#videos\/(.+)$/);
+  if (m) { try { vidFiltro = decodeURIComponent(m[1]); } catch(e) {} }
+}
+function showVideos(pularHistorico){
+  document.getElementById('catalog-view').classList.add('hidden');
+  const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
+  document.getElementById('dep-view').style.display = 'none';
+  document.getElementById('vid-view').style.display = 'block';
+  renderVidCategories();
+  renderVidGrid();
+  if (!pularHistorico && location.hash.indexOf('#videos') !== 0) {
+    try { history.pushState({ vid:true }, '', vidHashAtual()); } catch(e) {}
+  }
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function backToCatalogFromVid(pularHistorico){
+  closeVidLb();
+  document.getElementById('vid-view').style.display = 'none';
+  const hero = document.getElementById('main-hero'); if(hero) hero.style.display = '';
+  document.getElementById('catalog-view').classList.remove('hidden');
+  if (!pularHistorico && location.hash.indexOf('#videos') === 0) {
+    try { history.pushState({}, '', location.pathname + location.search); } catch(e) {}
+  }
+}
+
+function renderVidCategories(){
+  const cats = ['Todos', ...new Set(videos.filter(v=>v.ativo!==false).map(v=>v.cat).filter(Boolean))];
+  const row = document.getElementById('vid-cat-row');
+  if(row) row.innerHTML = cats.map(c =>
+    `<button class="cat-chip${c===vidFiltro?' active':''}" onclick="setVidFiltro(decodeURIComponent('${encodeURIComponent(c)}'))">${escHtml(c)}</button>`
+  ).join('');
+}
+function setVidFiltro(c){
+  vidFiltro = c;
+  renderVidCategories();
+  renderVidGrid();
+  if (location.hash.indexOf('#videos') === 0) {
+    try { history.replaceState({ vid:true }, '', vidHashAtual()); } catch(e) {}
+  }
+  const ativo = document.querySelector('#vid-cat-row .cat-chip.active');
+  if(ativo) ativo.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
+}
+
+function renderVidGrid(){
+  let list = videos.filter(v => v.ativo !== false);
+  if(vidFiltro !== 'Todos') list = list.filter(v => v.cat === vidFiltro);
+  list.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+  const grid  = document.getElementById('vid-grid');
+  const empty = document.getElementById('vid-empty');
+  const label = document.getElementById('vid-count-label');
+  if(label) label.textContent = list.length ? `${list.length} vídeo${list.length>1?'s':''}` : '';
+  if(!list.length){ grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  // O vídeo em si só é baixado quando o cliente clica: aqui vai só a capa.
+  grid.innerHTML = list.map(v => `
+    <div class="vid-card" onclick="openVidLb('${encodeURIComponent(v.url)}', '${encodeURIComponent(v.titulo||'')}')">
+      <div class="vid-thumb">
+        ${v.poster ? `<img src="${v.poster}" loading="lazy" alt="${escHtml(v.titulo||'Vídeo')}">` : `<div class="vid-fallback">🎬</div>`}
+        <div class="vid-play"><span>▶</span></div>
+      </div>
+      <div class="vid-cap">${escHtml(v.titulo || 'Ver vídeo')}<small>${escHtml(v.cat||'')}</small></div>
+    </div>`).join('');
+}
+
+function openVidLb(urlEnc, tituloEnc){
+  const player = document.getElementById('vidlb-player');
+  player.src = decodeURIComponent(urlEnc);
+  document.getElementById('vidlb-title').textContent = decodeURIComponent(tituloEnc || '');
+  document.getElementById('vidlb').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  player.play().catch(()=>{}); // autoplay pode ser bloqueado — os controles seguem lá
+}
+function closeVidLb(){
+  const lb = document.getElementById('vidlb');
+  if(!lb || !lb.classList.contains('open')) return;
+  const player = document.getElementById('vidlb-player');
+  // Sem parar e limpar o src o vídeo continua baixando/tocando em segundo plano
+  try { player.pause(); player.removeAttribute('src'); player.load(); } catch(e){}
+  lb.classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') closeVidLb();
+});
+
 loadProdutos();
 loadDepoimentos();
+loadVideos();
 </script>
 <!-- BOTÃO FLUTUANTE WHATSAPP -->
 <a id="wa-float" href="#" target="_blank" rel="noopener" aria-label="Falar no WhatsApp"
