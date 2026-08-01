@@ -545,6 +545,7 @@ tbody tr:hover{background:#fafbfc}
     <button class="nav-tab" onclick="showPage('lista-pedidos')" id="nav-pedidos" data-page="lista-pedidos">📦 Pedidos <span class="badge" id="badge-pedidos">0</span></button>
     <button class="nav-tab" onclick="showPage('depoimentos')" data-page="depoimentos">💬 Depoimentos</button>
     <button class="nav-tab" onclick="showPage('videos')" data-page="videos">🎬 Vídeos</button>
+    <button class="nav-tab" onclick="showPage('portfolio')" data-page="portfolio">📸 Portfólio</button>
   </nav>
   <span id="fb-status" class="fb-status">⏳ Conectando…</span>
 </div>
@@ -864,12 +865,15 @@ tbody tr:hover{background:#fafbfc}
         <label class="form-label" style="display:block;margin-bottom:5px">Categoria do depoimento</label>
         <select id="dep-cat" style="width:100%;padding:9px 11px;border:1px solid #B5D4F4;border-radius:8px;font-size:14px;background:#fff;cursor:pointer"></select>
       </div>
-      <div>
-        <input type="file" id="dep-file" accept="image/*" multiple style="display:none" onchange="onDepFiles(this)">
-        <button class="btn btn-success" onclick="if(document.getElementById('dep-cat').value){document.getElementById('dep-file').click()}else{alert('Escolha a categoria antes de adicionar prints.')}">➕ Adicionar prints</button>
-      </div>
     </div>
-    <div style="font-size:11px;color:#7a8aa0;margin-top:8px">Pode selecionar várias prints de uma vez. Elas são otimizadas automaticamente antes de salvar.</div>
+    <input type="file" id="dep-file" accept="image/*" multiple style="display:none" onchange="onDepFiles(this)">
+    <div class="photo-upload-area" id="dep-drop" style="margin-top:12px"
+         onclick="if(document.getElementById('dep-cat').value){document.getElementById('dep-file').click()}else{alert('Escolha a categoria antes de adicionar prints.')}">
+      <div style="font-size:22px;margin-bottom:6px">💬</div>
+      <div style="font-size:12px;color:#888">Clique ou arraste as prints aqui</div>
+      <div style="font-size:11px;color:#bbb;margin-top:3px">JPG, PNG ou WEBP — pode soltar várias de uma vez</div>
+    </div>
+    <div style="font-size:11px;color:#7a8aa0;margin-top:8px">As prints são otimizadas automaticamente antes de salvar.</div>
     <div id="dep-upload-status" style="font-size:12px;color:#185FA5;margin-top:8px;display:none;font-weight:600"></div>
   </div>
 
@@ -895,12 +899,15 @@ tbody tr:hover{background:#fafbfc}
         <label class="form-label" style="display:block;margin-bottom:5px">Título <span style="font-weight:400;color:#7a8aa0">(opcional)</span></label>
         <input id="vid-titulo" class="form-input" placeholder="Ex: Fogão Campeiro em uso" maxlength="70" style="width:100%">
       </div>
-      <div>
-        <input type="file" id="vid-file" accept="video/*" multiple style="display:none" onchange="onVidFiles(this)">
-        <button class="btn btn-success" onclick="if(document.getElementById('vid-cat').value){document.getElementById('vid-file').click()}else{alert('Escolha a categoria antes de adicionar vídeos.')}">➕ Adicionar vídeos</button>
-      </div>
     </div>
-    <div style="font-size:11px;color:#7a8aa0;margin-top:8px">A capa do vídeo é gerada automaticamente a partir do primeiro quadro. Use vídeos em MP4 de até 100MB — grave na horizontal ou na vertical, o player se adapta.</div>
+    <input type="file" id="vid-file" accept="video/*" multiple style="display:none" onchange="onVidFiles(this)">
+    <div class="photo-upload-area" id="vid-drop" style="margin-top:12px"
+         onclick="if(document.getElementById('vid-cat').value){document.getElementById('vid-file').click()}else{alert('Escolha a categoria antes de adicionar vídeos.')}">
+      <div style="font-size:22px;margin-bottom:6px">🎬</div>
+      <div style="font-size:12px;color:#888">Clique ou arraste os vídeos aqui</div>
+      <div style="font-size:11px;color:#bbb;margin-top:3px">MP4 até 100MB — pode soltar vários de uma vez</div>
+    </div>
+    <div style="font-size:11px;color:#7a8aa0;margin-top:8px">A capa do vídeo é gerada automaticamente a partir do primeiro quadro. Grave na horizontal ou na vertical, o player se adapta.</div>
     <div id="vid-upload-status" style="font-size:12px;color:#185FA5;margin-top:8px;display:none;font-weight:600"></div>
     <div id="vid-upload-bar-wrap" style="display:none;margin-top:6px;height:6px;background:#dbe7f5;border-radius:4px;overflow:hidden">
       <div id="vid-upload-bar" style="height:100%;width:0%;background:#185FA5;transition:width .2s"></div>
@@ -909,6 +916,40 @@ tbody tr:hover{background:#fafbfc}
 
   <div id="vid-lista">
     <div class="empty"><div class="empty-icon">🎬</div><p>Nenhum vídeo cadastrado ainda.</p></div>
+  </div>
+</div>
+
+<!-- PAGE: PORTFÓLIO (fotos de clientes por categoria) -->
+<div class="page" id="page-portfolio">
+  <div class="sec-header">
+    <div class="sec-title">Portfólio <small>Fotos de clientes por categoria — instalações reais, aparecem na loja e na página de cada produto da categoria</small></div>
+    <button class="btn btn-ghost btn-sm" onclick="carregarPortfolio()">🔄 Atualizar</button>
+  </div>
+
+  <div style="background:#f0f6ff;border:1px solid #B5D4F4;border-radius:10px;padding:14px 16px;margin-bottom:18px">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+      <div style="flex:1;min-width:200px">
+        <label class="form-label" style="display:block;margin-bottom:5px">Categoria da foto</label>
+        <select id="pf-cat" style="width:100%;padding:9px 11px;border:1px solid #B5D4F4;border-radius:8px;font-size:14px;background:#fff;cursor:pointer"></select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label class="form-label" style="display:block;margin-bottom:5px">Legenda <span style="font-weight:400;color:#7a8aa0">(opcional)</span></label>
+        <input id="pf-legenda" class="form-input" placeholder="Ex: Instalação em Santa Maria - RS" maxlength="70" style="width:100%">
+      </div>
+    </div>
+    <input type="file" id="pf-file" accept="image/*" multiple style="display:none" onchange="onPfFiles(this)">
+    <div class="photo-upload-area" id="pf-drop" style="margin-top:12px"
+         onclick="if(document.getElementById('pf-cat').value){document.getElementById('pf-file').click()}else{alert('Escolha a categoria antes de adicionar fotos.')}">
+      <div style="font-size:22px;margin-bottom:6px">📸</div>
+      <div style="font-size:12px;color:#888">Clique ou arraste as fotos aqui</div>
+      <div style="font-size:11px;color:#bbb;margin-top:3px">JPG, PNG ou WEBP — pode soltar várias de uma vez</div>
+    </div>
+    <div style="font-size:11px;color:#7a8aa0;margin-top:8px">As fotos são otimizadas automaticamente antes de salvar.</div>
+    <div id="pf-upload-status" style="font-size:12px;color:#185FA5;margin-top:8px;display:none;font-weight:600"></div>
+  </div>
+
+  <div id="pf-lista">
+    <div class="empty"><div class="empty-icon">📸</div><p>Nenhuma foto cadastrada ainda.</p></div>
   </div>
 </div>
 
@@ -1938,6 +1979,122 @@ async function toggleVidAtivo(id, novoAtivo){
   catch(e){ console.error(e); alert('Erro ao atualizar.'); }
 }
 
+// ── PORTFÓLIO: FOTOS DE CLIENTES POR CATEGORIA ────────────────────
+// Mesma lógica dos vídeos, mas como é foto ela cabe comprimida dentro do
+// próprio documento do Firestore (igual aos depoimentos) — não precisa do
+// Storage.
+let portfolio = [];
+
+function populatePfCatSelect(){
+  const sel = document.getElementById('pf-cat');
+  if(!sel) return;
+  const atual = sel.value;
+  sel.innerHTML = (categorias && categorias.length)
+    ? categorias.map(c => `<option value="${c}"${atual===c?' selected':''}>${c}</option>`).join('')
+    : '<option value="">Crie uma categoria primeiro</option>';
+}
+
+async function carregarPortfolio(){
+  const wrap = document.getElementById('pf-lista');
+  if(!wrap) return;
+  if(typeof db === 'undefined' || !db){ wrap.innerHTML = '<div class="empty"><p>Sem conexão com o banco.</p></div>'; return; }
+  wrap.innerHTML = '<div style="padding:24px;color:#888;font-size:13px">Carregando fotos…</div>';
+  try{
+    const snap = await db.collection('acn_portfolio').get();
+    portfolio = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+                         .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+    renderPortfolioAdmin();
+  }catch(e){
+    console.error('portfolio:', e);
+    wrap.innerHTML = '<div class="empty"><p>Erro ao carregar as fotos.</p></div>';
+  }
+}
+
+function renderPortfolioAdmin(){
+  const wrap = document.getElementById('pf-lista');
+  if(!wrap) return;
+  if(!portfolio.length){
+    wrap.innerHTML = '<div class="empty"><div class="empty-icon">📸</div><p>Nenhuma foto cadastrada ainda. Escolha a categoria acima e adicione as fotos.</p></div>';
+    return;
+  }
+  const grupos = {};
+  portfolio.forEach(p => { const c = p.cat || '(sem categoria)'; (grupos[c] = grupos[c] || []).push(p); });
+  const cats = (categorias || []).filter(c => grupos[c]);
+  Object.keys(grupos).forEach(c => { if(!cats.includes(c)) cats.push(c); });
+  wrap.innerHTML = cats.map(cat => {
+    const itens = grupos[cat];
+    const cards = itens.map(p => `
+      <div style="border:1px solid #e0e4e8;border-radius:10px;overflow:hidden;background:#fff${p.ativo===false?';opacity:.55':''}">
+        <div style="background:#0b141a;aspect-ratio:4/3"><img src="${p.foto}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block"></div>
+        ${p.legenda ? `<div style="padding:7px 9px 0;font-size:12px;font-weight:600;color:#003366;line-height:1.3">${escHtml(p.legenda)}</div>` : ''}
+        <div style="display:flex;gap:6px;padding:7px 8px">
+          <button class="btn btn-ghost btn-sm" style="flex:1;color:#c0392b;border-color:#f0c4be" onclick="deletePortfolio('${p.id}')">🗑️ Excluir</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="togglePfAtivo('${p.id}', ${p.ativo===false})">${p.ativo===false?'🚫 Oculto':'✅ Visível'}</button>
+        </div>
+      </div>`).join('');
+    return `<div style="margin-bottom:24px">
+      <div style="font-size:14px;font-weight:700;color:#003366;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${cat} <span style="font-weight:400;color:#aaa;font-size:12px">${itens.length} ${itens.length===1?'foto':'fotos'}</span>
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;color:#185FA5;border-color:#B5D4F4"
+          onclick="copiarLinkPortfolio('${cat.replace(/'/g,"\\'")}', this)"
+          title="Copiar o link que abre direto o portfólio desta categoria na loja">🔗 Link do portfólio</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${cards}</div>
+    </div>`;
+  }).join('');
+}
+
+function copiarLinkPortfolio(cat, btnEl){
+  const link = 'https://www.aconaval.com/#portfolio/' + encodeURIComponent(cat);
+  const original = btnEl ? btnEl.innerHTML : '';
+  copiarTexto(link).then(ok => {
+    if(btnEl){
+      btnEl.innerHTML = ok ? '✅ Copiado!' : '⚠️ Copie manualmente';
+      setTimeout(()=>{ btnEl.innerHTML = original; }, 1600);
+    }
+    if(!ok) prompt('Copie o link (Ctrl+C):', link);
+  });
+}
+
+async function onPfFiles(input){
+  const cat = document.getElementById('pf-cat').value;
+  if(!cat){ alert('Escolha a categoria antes de adicionar fotos.'); input.value=''; return; }
+  const files = Array.from(input.files || []);
+  if(!files.length) return;
+  const legendaInp = document.getElementById('pf-legenda');
+  const legendaBase = (legendaInp.value || '').trim();
+  const status = document.getElementById('pf-upload-status');
+  status.style.display = 'block';
+  let ok = 0;
+  for(let i=0;i<files.length;i++){
+    status.textContent = `Enviando ${i+1} de ${files.length}…`;
+    try{
+      const b64  = await depReadFile(files[i]);
+      const foto = await comprimirFoto(b64, 420, 1400); // boa qualidade e bem abaixo do limite de 1MB
+      const agora = Date.now();
+      const legenda = files.length > 1 && legendaBase ? `${legendaBase} ${i+1}` : legendaBase;
+      await db.collection('acn_portfolio').add({ cat, foto, legenda, ativo:true, criadoEm:agora });
+      ok++;
+    }catch(e){ console.error('upload portfolio:', e); }
+  }
+  status.textContent = `✅ ${ok} foto(s) adicionada(s) em "${cat}".`;
+  input.value = '';
+  legendaInp.value = '';
+  await carregarPortfolio();
+  setTimeout(() => { status.style.display = 'none'; }, 4000);
+}
+
+async function deletePortfolio(id){
+  if(!confirm('Excluir esta foto? Essa ação não pode ser desfeita.')) return;
+  try{ await db.collection('acn_portfolio').doc(id).delete(); await carregarPortfolio(); }
+  catch(e){ console.error(e); alert('Erro ao excluir.'); }
+}
+
+async function togglePfAtivo(id, novoAtivo){
+  try{ await db.collection('acn_portfolio').doc(id).update({ ativo: novoAtivo }); await carregarPortfolio(); }
+  catch(e){ console.error(e); alert('Erro ao atualizar.'); }
+}
+
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('[data-page]').forEach(b => b.classList.remove('active'));
@@ -1954,6 +2111,7 @@ function showPage(name) {
   if (name === 'solicitacoes') carregarSolicitacoes();
   if (name === 'depoimentos') { populateDepCatSelect(); carregarDepoimentos(); }
   if (name === 'videos') { populateVidCatSelect(); carregarVideos(); }
+  if (name === 'portfolio') { populatePfCatSelect(); carregarPortfolio(); }
 }
 // Roda do mouse na faixa de abas costuma rolar na vertical — converte para
 // rolagem horizontal aqui, já que em telas reduzidas o menu nem sempre cabe.
@@ -4576,6 +4734,11 @@ function copiarTexto(txt) {
   habilitarDropDeArquivo('glb-drop', 'inp-glb');
   habilitarDropDeArquivo('photo-drop-dir', 'inp-foto-dir');
   habilitarDropDeArquivo('projeto-drop-dir', 'inp-foto-projeto-dir');
+  // Abas de conteúdo (depoimentos, vídeos e portfólio): arrastar direto do
+  // computador em vez de abrir o seletor de arquivos e procurar a pasta.
+  habilitarDropDeArquivo('dep-drop', 'dep-file');
+  habilitarDropDeArquivo('vid-drop', 'vid-file');
+  habilitarDropDeArquivo('pf-drop', 'pf-file');
 })();
 
 // ── SOLICITAÇÕES ──────────────────────────────────────────────────

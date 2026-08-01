@@ -425,6 +425,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <span>💳 <strong>12x sem juros</strong> no cartão</span>
   </div>
   <div style="display:flex;gap:10px;align-items:center">
+    <button class="cart-btn" id="pf-nav-btn" onclick="showPortfolio()" style="display:none;background:rgba(255,255,255,.14)">
+      📸 <span class="label">PORTFÓLIO</span>
+    </button>
     <button class="cart-btn" id="vid-nav-btn" onclick="showVideos()" style="display:none;background:rgba(255,255,255,.14)">
       🎬 <span class="label">VÍDEOS</span>
     </button>
@@ -585,6 +588,36 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div id="vid-empty" style="display:none;text-align:center;color:var(--muted);padding:48px 0">Nenhum vídeo nesta categoria ainda.</div>
   </div>
 
+  <!-- PORTFÓLIO VIEW -->
+  <div id="pf-view" style="display:none">
+    <div style="margin:6px 0 16px">
+      <button class="btn btn-ghost" onclick="backToCatalogFromPf()" style="font-size:13px">← Voltar ao Catálogo</button>
+    </div>
+    <div class="section-head">
+      <div class="section-title">
+        Portfólio
+        <small id="pf-count-label"></small>
+      </div>
+    </div>
+    <p style="color:var(--muted);font-size:14px;margin:-4px 0 16px">Fotos reais de instalações já entregues, na casa dos nossos clientes.</p>
+    <div class="cat-bar"><div class="cat-row" id="pf-cat-row"></div></div>
+    <div id="pf-grid" style="columns:260px;column-gap:14px;margin-top:14px"></div>
+    <div id="pf-empty" style="display:none;text-align:center;color:var(--muted);padding:48px 0">Nenhuma foto nesta categoria ainda.</div>
+  </div>
+
+</div>
+
+<!-- PORTFÓLIO LIGHTBOX -->
+<div class="deplb" id="pflb" onclick="if(event.target===this)closePfLb()">
+  <button class="deplb-close" onclick="closePfLb()" aria-label="Fechar">✕</button>
+  <div class="deplb-row">
+    <button class="deplb-nav" id="pflb-prev" onclick="pfLbNav(-1)" aria-label="Anterior">‹</button>
+    <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+      <img id="pflb-img" src="" alt="Foto do portfólio">
+      <div id="pflb-cap" style="color:#fff;font-size:14px;text-align:center;max-width:88vw"></div>
+    </div>
+    <button class="deplb-nav" id="pflb-next" onclick="pfLbNav(1)" aria-label="Próxima">›</button>
+  </div>
 </div>
 
 <!-- PLAYER DE VÍDEO -->
@@ -1213,6 +1246,7 @@ function showDepoimentos(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
   document.getElementById('vid-view').style.display = 'none';
+  document.getElementById('pf-view').style.display = 'none';
   document.getElementById('dep-view').style.display = 'block';
   renderDepCategories();
   renderDepGrid();
@@ -1238,10 +1272,15 @@ window.addEventListener('popstate', () => {
   } else if (location.hash.indexOf('#videos') === 0) {
     aplicarFiltroVidDoHash();
     showVideos(true);
+  } else if (location.hash.indexOf('#portfolio') === 0) {
+    aplicarFiltroPfDoHash();
+    showPortfolio(true);
   } else if (document.getElementById('dep-view').style.display === 'block') {
     backToCatalogFromDep(true);
   } else if (document.getElementById('vid-view').style.display === 'block') {
     backToCatalogFromVid(true);
+  } else if (document.getElementById('pf-view').style.display === 'block') {
+    backToCatalogFromPf(true);
   }
 });
 function aplicarFiltroDoHash(){
@@ -1331,6 +1370,7 @@ function showVideos(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
   document.getElementById('dep-view').style.display = 'none';
+  document.getElementById('pf-view').style.display = 'none';
   document.getElementById('vid-view').style.display = 'block';
   renderVidCategories();
   renderVidGrid();
@@ -1409,9 +1449,131 @@ document.addEventListener('keydown', e => {
   if(e.key === 'Escape') closeVidLb();
 });
 
+// ── PORTFÓLIO (fotos de clientes por categoria) ──────────────────
+let portfolio = [];
+let pfFiltro = 'Todos';
+let pfLbList = [], pfLbIdx = 0;
+
+async function loadPortfolio(){
+  try{
+    const snap = await db.collection('acn_portfolio').get();
+    portfolio = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(p => p.foto);
+  }catch(e){ console.error('portfolio:', e); portfolio = []; }
+  const btn = document.getElementById('pf-nav-btn');
+  if(btn) btn.style.display = portfolio.some(p => p.ativo !== false) ? 'flex' : 'none';
+  if(document.getElementById('pf-view').style.display === 'block'){ renderPfCategories(); renderPfGrid(); }
+  // Link direto: aconaval.com/#portfolio (ou #portfolio/<categoria>)
+  if (location.hash.indexOf('#portfolio') === 0) {
+    aplicarFiltroPfDoHash();
+    showPortfolio(true);
+  }
+}
+
+function pfHashAtual(){
+  return '#portfolio' + (pfFiltro && pfFiltro !== 'Todos' ? '/' + encodeURIComponent(pfFiltro) : '');
+}
+function aplicarFiltroPfDoHash(){
+  const m = location.hash.match(/^#portfolio\/(.+)$/);
+  if (m) { try { pfFiltro = decodeURIComponent(m[1]); } catch(e) {} }
+}
+function showPortfolio(pularHistorico){
+  document.getElementById('catalog-view').classList.add('hidden');
+  const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
+  document.getElementById('dep-view').style.display = 'none';
+  document.getElementById('vid-view').style.display = 'none';
+  document.getElementById('pf-view').style.display = 'block';
+  renderPfCategories();
+  renderPfGrid();
+  if (!pularHistorico && location.hash.indexOf('#portfolio') !== 0) {
+    try { history.pushState({ pf:true }, '', pfHashAtual()); } catch(e) {}
+  }
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function backToCatalogFromPf(pularHistorico){
+  closePfLb();
+  document.getElementById('pf-view').style.display = 'none';
+  const hero = document.getElementById('main-hero'); if(hero) hero.style.display = '';
+  document.getElementById('catalog-view').classList.remove('hidden');
+  if (!pularHistorico && location.hash.indexOf('#portfolio') === 0) {
+    try { history.pushState({}, '', location.pathname + location.search); } catch(e) {}
+  }
+}
+
+function renderPfCategories(){
+  const cats = ['Todos', ...new Set(portfolio.filter(p=>p.ativo!==false).map(p=>p.cat).filter(Boolean))];
+  const row = document.getElementById('pf-cat-row');
+  if(row) row.innerHTML = cats.map(c =>
+    `<button class="cat-chip${c===pfFiltro?' active':''}" onclick="setPfFiltro(decodeURIComponent('${encodeURIComponent(c)}'))">${escHtml(c)}</button>`
+  ).join('');
+}
+function setPfFiltro(c){
+  pfFiltro = c;
+  renderPfCategories();
+  renderPfGrid();
+  if (location.hash.indexOf('#portfolio') === 0) {
+    try { history.replaceState({ pf:true }, '', pfHashAtual()); } catch(e) {}
+  }
+  const ativo = document.querySelector('#pf-cat-row .cat-chip.active');
+  if(ativo) ativo.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
+}
+
+function renderPfGrid(){
+  let list = portfolio.filter(p => p.ativo !== false);
+  if(pfFiltro !== 'Todos') list = list.filter(p => p.cat === pfFiltro);
+  list.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+  pfLbList = list.map(p => ({ foto:p.foto, legenda:p.legenda || '', cat:p.cat || '' }));
+  const grid  = document.getElementById('pf-grid');
+  const empty = document.getElementById('pf-empty');
+  const label = document.getElementById('pf-count-label');
+  if(label) label.textContent = list.length ? `${list.length} foto${list.length>1?'s':''}` : '';
+  if(!list.length){ grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  grid.innerHTML = list.map((p,i) => `
+    <div style="break-inside:avoid;margin-bottom:14px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;cursor:zoom-in;box-shadow:0 1px 6px rgba(0,0,0,.07);transition:transform .15s,box-shadow .15s"
+         onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 20px rgba(0,0,0,.12)'"
+         onmouseout="this.style.transform='';this.style.boxShadow='0 1px 6px rgba(0,0,0,.07)'"
+         onclick="openPfLb(${i})">
+      <img src="${p.foto}" loading="lazy" style="width:100%;display:block" alt="${escHtml(p.legenda||'Foto de cliente')}">
+      ${p.legenda ? `<div style="padding:9px 11px;font-size:13px;color:var(--navy);font-weight:600;line-height:1.35">${escHtml(p.legenda)}</div>` : ''}
+    </div>`).join('');
+}
+
+function openPfLb(i){
+  pfLbIdx = i;
+  aplicarPfLb();
+  const multi = pfLbList.length > 1;
+  document.getElementById('pflb-prev').style.display = multi ? '' : 'none';
+  document.getElementById('pflb-next').style.display = multi ? '' : 'none';
+  document.getElementById('pflb').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function aplicarPfLb(){
+  const item = pfLbList[pfLbIdx] || {};
+  document.getElementById('pflb-img').src = item.foto || '';
+  document.getElementById('pflb-cap').textContent = item.legenda || item.cat || '';
+}
+function pfLbNav(d){
+  pfLbIdx = (pfLbIdx + d + pfLbList.length) % pfLbList.length;
+  aplicarPfLb();
+}
+function closePfLb(){
+  const lb = document.getElementById('pflb');
+  if(!lb || !lb.classList.contains('open')) return;
+  lb.classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => {
+  const lb = document.getElementById('pflb');
+  if(!lb || !lb.classList.contains('open')) return;
+  if(e.key === 'Escape') closePfLb();
+  if(e.key === 'ArrowLeft') pfLbNav(-1);
+  if(e.key === 'ArrowRight') pfLbNav(1);
+});
+
 loadProdutos();
 loadDepoimentos();
 loadVideos();
+loadPortfolio();
 </script>
 <!-- BOTÃO FLUTUANTE WHATSAPP -->
 <a id="wa-float" href="#" target="_blank" rel="noopener" aria-label="Falar no WhatsApp"

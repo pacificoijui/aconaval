@@ -571,6 +571,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
   </div>
 
+  <!-- PORTFÓLIO DA CATEGORIA (fotos de clientes) -->
+  <div class="vsec" id="pfsec" style="display:none">
+    <div class="vsec-head">
+      <div>
+        <div class="vsec-title">📸 Na casa dos clientes</div>
+        <div class="vsec-sub" id="pfsec-sub">Fotos reais de instalações já entregues</div>
+      </div>
+      <a class="vsec-link" id="pfsec-link" href="#">Ver todo o portfólio →</a>
+    </div>
+    <div class="vsec-track" id="pfsec-track"></div>
+  </div>
+
+  <div class="vlb" id="pflb" onclick="if(event.target===this)closePfLb()">
+    <button class="vlb-close" onclick="closePfLb()" aria-label="Fechar">✕</button>
+    <div class="vlb-box">
+      <img id="pflb-img" src="" alt="Foto de cliente" style="max-width:92vw;max-height:78vh;object-fit:contain;border-radius:10px;display:block">
+      <div class="vlb-title" id="pflb-cap"></div>
+    </div>
+  </div>
+
   <!-- DEPOIMENTOS -->
   <style>
     .dep-section{margin-top:36px;padding-top:28px;border-top:1px solid var(--border)}
@@ -1622,6 +1642,7 @@ setupGestures();
     showScreen('prod');
     carregarDepoimentos(produto.cat);
     carregarVideosDaCategoria(produto.cat);
+    carregarPortfolioDaCategoria(produto.cat);
     carregarRelacionados(produto.cat, produto.id);
     atualizarWhatsApp();
     renderEspelhoToggle();
@@ -1713,6 +1734,55 @@ function closeVidLb(){
   const player = document.getElementById('vlb-player');
   // Sem parar e limpar o src o vídeo continua baixando/tocando em segundo plano
   try { player.pause(); player.removeAttribute('src'); player.load(); } catch(e){}
+  lb.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// ── PORTFÓLIO DA CATEGORIA (fotos de clientes) ────────────────────
+let pfLista = [], pfIdx = 0;
+
+async function carregarPortfolioDaCategoria(cat){
+  const sec = document.getElementById('pfsec');
+  const track = document.getElementById('pfsec-track');
+  if(!cat || !sec || !track) return;
+  try{
+    const snap = await db.collection('acn_portfolio').where('cat','==',cat).get();
+    pfLista = snap.docs.map(d=>d.data())
+                       .filter(p => p.foto && p.ativo !== false)
+                       .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+  }catch(e){ console.error('portfolio:', e); pfLista = []; }
+  if(!pfLista.length){ sec.style.display='none'; return; }
+
+  document.getElementById('pfsec-sub').textContent =
+    `${pfLista.length} foto${pfLista.length>1?'s':''} de ${cat} já instalado${pfLista.length>1?'s':''} em clientes`;
+  const link = document.getElementById('pfsec-link');
+  link.href = './#portfolio/' + encodeURIComponent(cat);
+  link.style.display = pfLista.length > 1 ? '' : 'none';
+
+  track.innerHTML = pfLista.map((p,i) => `
+    <div class="vsec-card" onclick="openPfLb(${i})">
+      <div class="vsec-thumb"><img src="${p.foto}" loading="lazy" alt="${escHtml(p.legenda||'Foto de cliente')}"></div>
+      ${p.legenda ? `<div class="vsec-cap">${escHtml(p.legenda)}</div>` : ''}
+    </div>`).join('');
+  sec.style.display = 'block';
+}
+
+function openPfLb(i){
+  pfIdx = i;
+  const item = pfLista[i] || {};
+  document.getElementById('pflb-img').src = item.foto || '';
+  document.getElementById('pflb-cap').textContent = item.legenda || '';
+  document.getElementById('pflb').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function pfLbNav(d){
+  if(!pfLista.length) return;
+  pfIdx = (pfIdx + d + pfLista.length) % pfLista.length;
+  openPfLb(pfIdx);
+}
+function closePfLb(){
+  const lb = document.getElementById('pflb');
+  if(!lb || !lb.classList.contains('open')) return;
   lb.classList.remove('open');
   document.body.style.overflow = '';
 }
@@ -2069,6 +2139,14 @@ document.addEventListener('keydown', e => {
     if(e.key==='ArrowLeft') depLbNav(-1);
     if(e.key==='ArrowRight') depLbNav(1);
     if(e.key==='Escape') closeDepLb();
+    return;
+  }
+  // Portfólio: setas + Esc
+  const pl = document.getElementById('pflb');
+  if (pl && pl.classList.contains('open')) {
+    if(e.key==='ArrowLeft') pfLbNav(-1);
+    if(e.key==='ArrowRight') pfLbNav(1);
+    if(e.key==='Escape') closePfLb();
     return;
   }
   // Player de vídeo: Esc fecha
