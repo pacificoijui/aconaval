@@ -141,6 +141,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   border-bottom:1px solid var(--border);
 }
 .cat-row{display:flex;flex-wrap:wrap;gap:8px}
+/* ── ATALHOS DA CATEGORIA (fotos de clientes / vídeos / depoimentos) ──
+   Aparecem só quando há uma categoria escolhida E existe conteúdo daquele
+   tipo pra ela — botão que não leva a lugar nenhum não é mostrado. */
+.cat-acoes{display:flex;gap:7px;margin-top:9px;padding-top:9px;border-top:1px dashed #dbe4ee;flex-wrap:wrap;animation:sfIn .25s ease}
+.ca-btn{display:inline-flex;align-items:center;gap:5px;border:1.5px solid #dfe6ee;background:#fff;color:#41505f;font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:20px;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
+.ca-btn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.08)}
+.ca-btn .ca-n{font-weight:400;opacity:.5;font-size:11px}
+.ca-btn.ca-pf:hover{border-color:#185FA5;color:#185FA5;background:#f2f7fd}
+.ca-btn.ca-vd:hover{border-color:#a85a2a;color:#a85a2a;background:#fdf6f1}
+.ca-btn.ca-dp:hover{border-color:#2e8b57;color:#2e8b57;background:#f1faf4}
+@media(max-width:420px){
+  .cat-acoes{gap:6px;margin-top:8px;padding-top:8px}
+  .ca-btn{font-size:11.5px;padding:4px 9px;gap:4px}
+}
 /* ── SUBFILTROS (filtros dinâmicos da categoria) ── */
 .subfilter-bar{margin-top:10px;padding-top:10px;border-top:1px dashed #dbe4ee;display:flex;flex-direction:column;gap:7px;animation:sfIn .25s ease}
 @keyframes sfIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
@@ -373,8 +387,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   /* Drawer (carrinho) largura total */
   #cart-btn span.label{display:none}
-  #dep-nav-btn{font-size:11.5px;padding:7px 10px}
-  #dep-nav-btn span.label{display:inline;letter-spacing:.3px}
+  /* Três atalhos no topo (portfólio, vídeos, depoimentos) não cabem escritos
+     em tela estreita — viravam rolagem horizontal na página inteira. No
+     celular ficam só os ícones; o nome completo aparece na barra de atalhos
+     da categoria, logo abaixo. */
+  #pf-nav-btn, #vid-nav-btn, #dep-nav-btn{font-size:15px;padding:7px 10px;gap:0}
+  #pf-nav-btn span.label, #vid-nav-btn span.label, #dep-nav-btn span.label{display:none}
   .logo-img{width:40px;height:40px}
   .logo-text{font-size:18px}
 
@@ -468,6 +486,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <!-- MENU DE CATEGORIAS (topo, fixo) -->
     <div class="cat-bar" id="cat-bar">
       <div class="cat-row" id="cat-row"></div>
+      <div id="cat-acoes" class="cat-acoes" style="display:none"></div>
       <div id="subfilter-bar" class="subfilter-bar" style="display:none"></div>
     </div>
 
@@ -773,6 +792,7 @@ function renderTudo() {
   window.__acnReady = true;   // desarma o watchdog de tela travada
   aplicarCatDaUrl();
   renderCategories();
+  renderAcoesCategoria();
   renderSubFiltros();
   renderCatalog();
   atualizarWhatsAppLoja();
@@ -848,6 +868,34 @@ function renderCategories() {
     <button class="cat-chip${c===filtroAtivo?' active':''}" onclick="setCategoria(decodeURIComponent('${encodeURIComponent(c)}'))">${escHtml(c)}</button>
   `).join('');
 }
+// Atalhos pro conteúdo da categoria escolhida. Ficam escondidos em "Todos"
+// (não há contexto de categoria) e cada botão só entra se existir conteúdo
+// visível daquele tipo — assim nenhum botão leva pra uma galeria vazia.
+// É chamado de novo quando cada galeria termina de carregar, porque os
+// dados chegam depois do primeiro desenho da barra.
+function renderAcoesCategoria() {
+  const wrap = document.getElementById('cat-acoes');
+  if (!wrap) return;
+  if (!filtroAtivo || filtroAtivo === 'Todos') { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  const conta = lista => (lista || []).filter(x => x && x.ativo !== false && x.cat === filtroAtivo).length;
+  const catEnc = encodeURIComponent(filtroAtivo);
+  const itens = [
+    { n: conta(portfolio),   cls: 'ca-pf', icone: '📸', texto: 'Fotos de clientes', fn: 'verPortfolioDaCategoria' },
+    { n: conta(videos),      cls: 'ca-vd', icone: '🎬', texto: 'Vídeos',            fn: 'verVideosDaCategoria' },
+    { n: conta(depoimentos), cls: 'ca-dp', icone: '💬', texto: 'Depoimentos',       fn: 'verDepoimentosDaCategoria' }
+  ].filter(i => i.n > 0);
+  if (!itens.length) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.innerHTML = itens.map(i =>
+    `<button class="ca-btn ${i.cls}" onclick="${i.fn}(decodeURIComponent('${catEnc}'))">${i.icone} ${escHtml(i.texto)} <span class="ca-n">${i.n}</span></button>`
+  ).join('');
+  wrap.style.display = 'flex';
+}
+// Abre cada galeria já filtrada na categoria (o filtro precisa ser definido
+// antes de abrir: é ele que monta o link que vai pra barra de endereço).
+function verPortfolioDaCategoria(cat)   { pfFiltro  = cat; showPortfolio(); }
+function verVideosDaCategoria(cat)      { vidFiltro = cat; showVideos(); }
+function verDepoimentosDaCategoria(cat) { depFiltro = cat; showDepoimentos(); }
+
 function setCategoria(cat) {
   filtroAtivo = cat;
   subFiltros = {};                 // trocar de categoria limpa os filtros
@@ -855,6 +903,7 @@ function setCategoria(cat) {
   if (cat === 'Todos') history.replaceState({}, '', location.pathname);
   else history.replaceState({}, '', '?cat=' + slugCat(cat));
   renderCategories();
+  renderAcoesCategoria();
   renderSubFiltros();
   renderCatalog();
   atualizarWhatsAppLoja();
@@ -1230,6 +1279,7 @@ async function loadDepoimentos(){
   }catch(e){ console.error('depoimentos:', e); depoimentos = []; }
   const btn = document.getElementById('dep-nav-btn');
   if(btn) btn.style.display = depoimentos.some(d => d.ativo !== false) ? 'flex' : 'none';
+  renderAcoesCategoria();
   if(document.getElementById('dep-view').style.display === 'block'){ renderDepCategories(); renderDepGrid(); }
   // Link direto: aconaval.com/#depoimentos (ou #depoimentos/<categoria>) abre a tela na hora
   if (location.hash.indexOf('#depoimentos') === 0) {
@@ -1351,6 +1401,7 @@ async function loadVideos(){
   }catch(e){ console.error('videos:', e); videos = []; }
   const btn = document.getElementById('vid-nav-btn');
   if(btn) btn.style.display = videos.some(v => v.ativo !== false) ? 'flex' : 'none';
+  renderAcoesCategoria();
   if(document.getElementById('vid-view').style.display === 'block'){ renderVidCategories(); renderVidGrid(); }
   // Link direto: aconaval.com/#videos (ou #videos/<categoria>) abre a tela na hora
   if (location.hash.indexOf('#videos') === 0) {
@@ -1461,6 +1512,7 @@ async function loadPortfolio(){
   }catch(e){ console.error('portfolio:', e); portfolio = []; }
   const btn = document.getElementById('pf-nav-btn');
   if(btn) btn.style.display = portfolio.some(p => p.ativo !== false) ? 'flex' : 'none';
+  renderAcoesCategoria();
   if(document.getElementById('pf-view').style.display === 'block'){ renderPfCategories(); renderPfGrid(); }
   // Link direto: aconaval.com/#portfolio (ou #portfolio/<categoria>)
   if (location.hash.indexOf('#portfolio') === 0) {
