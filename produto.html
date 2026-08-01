@@ -1445,6 +1445,13 @@ const escHtml = s => String(s == null ? '' : s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
+// Mesmo slug usado na loja (index.html) pros links de categoria — sem
+// acento e minúsculo, ex: "Fogões" -> "fogoes".
+function slugCat(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 // ── CATÁLOGO COMPARTILHADO (menu de categorias + relacionados) ────
 // Antes, o menu de categorias e a faixa "mais produtos" baixavam o catálogo
 // INTEIRO cada um por conta própria (2x tudo). Agora é UMA busca só, dividida
@@ -1706,7 +1713,7 @@ async function carregarVideosDaCategoria(cat){
   document.getElementById('vsec-sub').textContent =
     `${lista.length} vídeo${lista.length>1?'s':''} de ${cat} — clique pra assistir`;
   const link = document.getElementById('vsec-link');
-  link.href = './#videos/' + encodeURIComponent(cat);
+  link.href = './#videos/' + slugCat(cat);
   link.style.display = lista.length > 1 ? '' : 'none';
 
   track.innerHTML = lista.map(v => `
@@ -1756,7 +1763,7 @@ async function carregarPortfolioDaCategoria(cat){
   document.getElementById('pfsec-sub').textContent =
     `${pfLista.length} foto${pfLista.length>1?'s':''} de ${cat} já instalado${pfLista.length>1?'s':''} em clientes`;
   const link = document.getElementById('pfsec-link');
-  link.href = './#portfolio/' + encodeURIComponent(cat);
+  link.href = './#portfolio/' + slugCat(cat);
   link.style.display = pfLista.length > 1 ? '' : 'none';
 
   track.innerHTML = pfLista.map((p,i) => `

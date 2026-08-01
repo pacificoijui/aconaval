@@ -1288,9 +1288,21 @@ async function loadDepoimentos(){
   }
 }
 
+// URL do catálogo com a categoria de produtos atual (se houver) — usada ao
+// voltar de qualquer galeria. Não dá pra usar location.search aqui: ao ENTRAR
+// numa galeria a gente já limpa o "?cat=..." da URL (pra não repetir a
+// categoria duas vezes junto com o hash), então o "?cat=" já era mesmo antes
+// de o botão "Voltar" rodar. filtroAtivo continua com o valor certo porque
+// entrar numa galeria não mexe no filtro de categoria dos produtos.
+function urlDoCatalogo(){
+  const qs = (filtroAtivo && filtroAtivo !== 'Todos') ? ('?cat=' + slugCat(filtroAtivo)) : '';
+  return location.pathname + qs;
+}
 function depHashAtual(){
   // Link específico dos depoimentos: #depoimentos ou #depoimentos/<categoria>
-  return '#depoimentos' + (depFiltro && depFiltro !== 'Todos' ? '/' + encodeURIComponent(depFiltro) : '');
+  // Usa o slug (ex: "fogoes"), igual ao "?cat=" dos produtos — bem mais curto
+  // que o nome com acento todo percent-encoded (ex: "Fog%C3%B5es").
+  return '#depoimentos' + (depFiltro && depFiltro !== 'Todos' ? '/' + slugCat(depFiltro) : '');
 }
 function showDepoimentos(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
@@ -1300,9 +1312,12 @@ function showDepoimentos(pularHistorico){
   document.getElementById('dep-view').style.display = 'block';
   renderDepCategories();
   renderDepGrid();
-  // Gera o link específico dos depoimentos na barra de endereço (dá pra copiar e compartilhar)
+  // Gera o link específico dos depoimentos na barra de endereço (dá pra copiar e
+  // compartilhar) — usa location.pathname explicitamente pra descartar um
+  // eventual "?cat=..." que tenha ficado na URL, senão o link fica com a
+  // categoria repetida duas vezes (?cat=fogoes#depoimentos/Fogões).
   if (!pularHistorico && location.hash.indexOf('#depoimentos') !== 0) {
-    try { history.pushState({ dep:true }, '', depHashAtual()); } catch(e) {}
+    try { history.pushState({ dep:true }, '', location.pathname + depHashAtual()); } catch(e) {}
   }
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -1311,7 +1326,7 @@ function backToCatalogFromDep(pularHistorico){
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = '';
   document.getElementById('catalog-view').classList.remove('hidden');
   if (!pularHistorico && location.hash.indexOf('#depoimentos') === 0) {
-    try { history.pushState({}, '', location.pathname + location.search); } catch(e) {}
+    try { history.pushState({}, '', urlDoCatalogo()); } catch(e) {}
   }
 }
 // Botão voltar do navegador entra/sai dos depoimentos e dos vídeos naturalmente
@@ -1335,7 +1350,12 @@ window.addEventListener('popstate', () => {
 });
 function aplicarFiltroDoHash(){
   const m = location.hash.match(/^#depoimentos\/(.+)$/);
-  if (m) { try { depFiltro = decodeURIComponent(m[1]); } catch(e) {} }
+  if (!m) return;
+  let val = m[1];
+  try { val = decodeURIComponent(val); } catch(e) {}
+  // Aceita o nome exato (links antigos, já compartilhados) OU o slug novo
+  const achou = depoimentos.find(d => d.cat === val || slugCat(d.cat) === slugCat(val));
+  depFiltro = achou ? achou.cat : val;
 }
 
 function renderDepCategories(){
@@ -1350,7 +1370,7 @@ function setDepFiltro(c){
   renderDepCategories();
   renderDepGrid();
   if (location.hash.indexOf('#depoimentos') === 0) {
-    try { history.replaceState({ dep:true }, '', depHashAtual()); } catch(e) {}
+    try { history.replaceState({ dep:true }, '', location.pathname + depHashAtual()); } catch(e) {}
   }
   const ativo = document.querySelector('#dep-cat-row .cat-chip.active');
   if(ativo) ativo.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
@@ -1411,11 +1431,17 @@ async function loadVideos(){
 }
 
 function vidHashAtual(){
-  return '#videos' + (vidFiltro && vidFiltro !== 'Todos' ? '/' + encodeURIComponent(vidFiltro) : '');
+  // Usa o slug, igual ao "?cat=" dos produtos — bem mais curto que o nome
+  // com acento todo percent-encoded.
+  return '#videos' + (vidFiltro && vidFiltro !== 'Todos' ? '/' + slugCat(vidFiltro) : '');
 }
 function aplicarFiltroVidDoHash(){
   const m = location.hash.match(/^#videos\/(.+)$/);
-  if (m) { try { vidFiltro = decodeURIComponent(m[1]); } catch(e) {} }
+  if (!m) return;
+  let val = m[1];
+  try { val = decodeURIComponent(val); } catch(e) {}
+  const achou = videos.find(v => v.cat === val || slugCat(v.cat) === slugCat(val));
+  vidFiltro = achou ? achou.cat : val;
 }
 function showVideos(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
@@ -1425,8 +1451,11 @@ function showVideos(pularHistorico){
   document.getElementById('vid-view').style.display = 'block';
   renderVidCategories();
   renderVidGrid();
+  // Usa location.pathname explicitamente pra descartar um eventual "?cat=..."
+  // que tenha ficado na URL — senão o link fica com a categoria repetida
+  // duas vezes (?cat=fogoes#videos/Fogões).
   if (!pularHistorico && location.hash.indexOf('#videos') !== 0) {
-    try { history.pushState({ vid:true }, '', vidHashAtual()); } catch(e) {}
+    try { history.pushState({ vid:true }, '', location.pathname + vidHashAtual()); } catch(e) {}
   }
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -1436,7 +1465,7 @@ function backToCatalogFromVid(pularHistorico){
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = '';
   document.getElementById('catalog-view').classList.remove('hidden');
   if (!pularHistorico && location.hash.indexOf('#videos') === 0) {
-    try { history.pushState({}, '', location.pathname + location.search); } catch(e) {}
+    try { history.pushState({}, '', urlDoCatalogo()); } catch(e) {}
   }
 }
 
@@ -1452,7 +1481,7 @@ function setVidFiltro(c){
   renderVidCategories();
   renderVidGrid();
   if (location.hash.indexOf('#videos') === 0) {
-    try { history.replaceState({ vid:true }, '', vidHashAtual()); } catch(e) {}
+    try { history.replaceState({ vid:true }, '', location.pathname + vidHashAtual()); } catch(e) {}
   }
   const ativo = document.querySelector('#vid-cat-row .cat-chip.active');
   if(ativo) ativo.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
@@ -1522,11 +1551,17 @@ async function loadPortfolio(){
 }
 
 function pfHashAtual(){
-  return '#portfolio' + (pfFiltro && pfFiltro !== 'Todos' ? '/' + encodeURIComponent(pfFiltro) : '');
+  // Usa o slug, igual ao "?cat=" dos produtos — bem mais curto que o nome
+  // com acento todo percent-encoded.
+  return '#portfolio' + (pfFiltro && pfFiltro !== 'Todos' ? '/' + slugCat(pfFiltro) : '');
 }
 function aplicarFiltroPfDoHash(){
   const m = location.hash.match(/^#portfolio\/(.+)$/);
-  if (m) { try { pfFiltro = decodeURIComponent(m[1]); } catch(e) {} }
+  if (!m) return;
+  let val = m[1];
+  try { val = decodeURIComponent(val); } catch(e) {}
+  const achou = portfolio.find(p => p.cat === val || slugCat(p.cat) === slugCat(val));
+  pfFiltro = achou ? achou.cat : val;
 }
 function showPortfolio(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
@@ -1536,8 +1571,11 @@ function showPortfolio(pularHistorico){
   document.getElementById('pf-view').style.display = 'block';
   renderPfCategories();
   renderPfGrid();
+  // Usa location.pathname explicitamente pra descartar um eventual "?cat=..."
+  // que tenha ficado na URL — senão o link fica com a categoria repetida
+  // duas vezes (?cat=fogoes#portfolio/Fogões).
   if (!pularHistorico && location.hash.indexOf('#portfolio') !== 0) {
-    try { history.pushState({ pf:true }, '', pfHashAtual()); } catch(e) {}
+    try { history.pushState({ pf:true }, '', location.pathname + pfHashAtual()); } catch(e) {}
   }
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -1547,7 +1585,7 @@ function backToCatalogFromPf(pularHistorico){
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = '';
   document.getElementById('catalog-view').classList.remove('hidden');
   if (!pularHistorico && location.hash.indexOf('#portfolio') === 0) {
-    try { history.pushState({}, '', location.pathname + location.search); } catch(e) {}
+    try { history.pushState({}, '', urlDoCatalogo()); } catch(e) {}
   }
 }
 
@@ -1563,7 +1601,7 @@ function setPfFiltro(c){
   renderPfCategories();
   renderPfGrid();
   if (location.hash.indexOf('#portfolio') === 0) {
-    try { history.replaceState({ pf:true }, '', pfHashAtual()); } catch(e) {}
+    try { history.replaceState({ pf:true }, '', location.pathname + pfHashAtual()); } catch(e) {}
   }
   const ativo = document.querySelector('#pf-cat-row .cat-chip.active');
   if(ativo) ativo.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });

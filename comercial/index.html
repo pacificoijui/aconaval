@@ -1856,7 +1856,7 @@ function renderVideosAdmin(){
 
 // Link público que abre a loja já na aba de vídeos, filtrada nessa categoria.
 function copiarLinkVideos(cat, btnEl){
-  const link = 'https://www.aconaval.com/#videos/' + encodeURIComponent(cat);
+  const link = 'https://www.aconaval.com/#videos/' + slugCatWorker(cat);
   const original = btnEl ? btnEl.innerHTML : '';
   copiarTexto(link).then(ok => {
     if(btnEl){
@@ -2045,7 +2045,7 @@ function renderPortfolioAdmin(){
 }
 
 function copiarLinkPortfolio(cat, btnEl){
-  const link = 'https://www.aconaval.com/#portfolio/' + encodeURIComponent(cat);
+  const link = 'https://www.aconaval.com/#portfolio/' + slugCatWorker(cat);
   const original = btnEl ? btnEl.innerHTML : '';
   copiarTexto(link).then(ok => {
     if(btnEl){
