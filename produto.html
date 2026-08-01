@@ -538,6 +538,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vsec-card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(0,0,0,.13)}
     .vsec-thumb{position:relative;background:#0b141a;aspect-ratio:16/10}
     .vsec-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    /* Fotos de portfólio: object-fit:contain (sem cortar nada da foto) — ao
+       contrário da capa de vídeo, que pode cortar como miniatura, uma foto
+       de cliente cortada perde justamente o que se quer mostrar. */
+    .vsec-thumb.pf-thumb img{object-fit:contain}
     .vsec-thumb .vsec-fb{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:34px;color:rgba(255,255,255,.5)}
     .vsec-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vsec-play span{width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:19px;padding-left:4px;transition:transform .15s}
@@ -1768,7 +1772,7 @@ async function carregarPortfolioDaCategoria(cat){
 
   track.innerHTML = pfLista.map((p,i) => `
     <div class="vsec-card" onclick="openPfLb(${i})">
-      <div class="vsec-thumb"><img src="${p.foto}" loading="lazy" alt="${escHtml(p.legenda||'Foto de cliente')}"></div>
+      <div class="vsec-thumb pf-thumb"><img src="${p.foto}" loading="lazy" alt="${escHtml(p.legenda||'Foto de cliente')}"></div>
       ${p.legenda ? `<div class="vsec-cap">${escHtml(p.legenda)}</div>` : ''}
     </div>`).join('');
   sec.style.display = 'block';
