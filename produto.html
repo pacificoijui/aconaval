@@ -538,10 +538,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vsec-card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(0,0,0,.13)}
     .vsec-thumb{position:relative;background:#0b141a;aspect-ratio:16/10}
     .vsec-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-    /* Fotos de portfólio: object-fit:contain (sem cortar nada da foto) — ao
-       contrário da capa de vídeo, que pode cortar como miniatura, uma foto
-       de cliente cortada perde justamente o que se quer mostrar. */
-    .vsec-thumb.pf-thumb img{object-fit:contain}
     .vsec-thumb .vsec-fb{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:34px;color:rgba(255,255,255,.5)}
     .vsec-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vsec-play span{width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:19px;padding-left:4px;transition:transform .15s}
@@ -550,7 +546,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vlb{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
     .vlb.open{display:flex}
     .vlb-box{max-width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:10px;align-items:center}
-    .vlb-box video{max-width:92vw;max-height:78vh;border-radius:10px;background:#000;display:block}
+    .vlb-box iframe{width:min(92vw,960px);aspect-ratio:16/9;max-height:78vh;border-radius:10px;background:#000;display:block;border:none}
     .vlb-title{color:#fff;font-size:14px;text-align:center;max-width:92vw}
     .vlb-close{position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:9px;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:20px;cursor:pointer;z-index:2}
     @media(max-width:640px){ .vsec-card{width:220px} }
@@ -570,21 +566,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="vlb" id="vlb" onclick="if(event.target===this)closeVidLb()">
     <button class="vlb-close" onclick="closeVidLb()" aria-label="Fechar">✕</button>
     <div class="vlb-box">
-      <video id="vlb-player" controls playsinline preload="metadata"></video>
+      <iframe id="vlb-player" src="" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
       <div class="vlb-title" id="vlb-title"></div>
     </div>
   </div>
 
   <!-- PORTFÓLIO DA CATEGORIA (fotos de clientes) -->
-  <div class="vsec" id="pfsec" style="display:none">
-    <div class="vsec-head">
+  <div class="dep-section" id="pfsec" style="display:none">
+    <div class="dep-head">
       <div>
-        <div class="vsec-title">📸 Na casa dos clientes</div>
-        <div class="vsec-sub" id="pfsec-sub">Fotos reais de instalações já entregues</div>
+        <div class="dep-title">📸 Na casa dos clientes</div>
+        <div class="dep-sub" id="pfsec-sub">Fotos reais de instalações já entregues</div>
       </div>
       <a class="vsec-link" id="pfsec-link" href="#">Ver todo o portfólio →</a>
     </div>
-    <div class="vsec-track" id="pfsec-track"></div>
+    <div class="dep-viewport">
+      <button class="dep-arrow prev" id="pfsec-prev" onclick="pfScroll(-1)" aria-label="Anterior">‹</button>
+      <div class="dep-track" id="pfsec-track"></div>
+      <button class="dep-arrow next" id="pfsec-next" onclick="pfScroll(1)" aria-label="Próximo">›</button>
+    </div>
   </div>
 
   <div class="vlb" id="pflb" onclick="if(event.target===this)closePfLb()">
@@ -1709,7 +1709,7 @@ async function carregarVideosDaCategoria(cat){
   try{
     const snap = await db.collection('acn_videos').where('cat','==',cat).get();
     lista = snap.docs.map(d=>d.data())
-                     .filter(v => v.url && v.ativo !== false)
+                     .filter(v => v.ytId && v.ativo !== false)
                      .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
   }catch(e){ console.error('videos:', e); lista = []; }
   if(!lista.length){ sec.style.display='none'; return; }
@@ -1721,9 +1721,9 @@ async function carregarVideosDaCategoria(cat){
   link.style.display = lista.length > 1 ? '' : 'none';
 
   track.innerHTML = lista.map(v => `
-    <div class="vsec-card" onclick="openVidLb('${encodeURIComponent(v.url)}','${encodeURIComponent(v.titulo||'')}')">
+    <div class="vsec-card" onclick="openVidLb('${v.ytId}','${encodeURIComponent(v.titulo||'')}')">
       <div class="vsec-thumb">
-        ${v.poster ? `<img src="${v.poster}" loading="lazy" alt="${escHtml(v.titulo||'Vídeo')}">` : `<div class="vsec-fb">🎬</div>`}
+        <img src="https://img.youtube.com/vi/${v.ytId}/hqdefault.jpg" loading="lazy" alt="${escHtml(v.titulo||'Vídeo')}">
         <div class="vsec-play"><span>▶</span></div>
       </div>
       <div class="vsec-cap">${escHtml(v.titulo || ('Vídeo · ' + cat))}</div>
@@ -1731,20 +1731,19 @@ async function carregarVideosDaCategoria(cat){
   sec.style.display = 'block';
 }
 
-function openVidLb(urlEnc, tituloEnc){
+function openVidLb(ytId, tituloEnc){
   const player = document.getElementById('vlb-player');
-  player.src = decodeURIComponent(urlEnc);
+  player.src = `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`;
   document.getElementById('vlb-title').textContent = decodeURIComponent(tituloEnc || '');
   document.getElementById('vlb').classList.add('open');
   document.body.style.overflow = 'hidden';
-  player.play().catch(()=>{}); // autoplay pode ser bloqueado — os controles seguem lá
 }
 function closeVidLb(){
   const lb = document.getElementById('vlb');
   if(!lb || !lb.classList.contains('open')) return;
-  const player = document.getElementById('vlb-player');
-  // Sem parar e limpar o src o vídeo continua baixando/tocando em segundo plano
-  try { player.pause(); player.removeAttribute('src'); player.load(); } catch(e){}
+  // Limpar o src do iframe é o que realmente para o vídeo — sem isso ele
+  // continua tocando (e "baixando") escondido atrás do modal fechado.
+  document.getElementById('vlb-player').src = '';
   lb.classList.remove('open');
   document.body.style.overflow = '';
 }
@@ -1770,13 +1769,48 @@ async function carregarPortfolioDaCategoria(cat){
   link.href = './#portfolio/' + slugCat(cat);
   link.style.display = pfLista.length > 1 ? '' : 'none';
 
-  track.innerHTML = pfLista.map((p,i) => `
-    <div class="vsec-card" onclick="openPfLb(${i})">
-      <div class="vsec-thumb pf-thumb"><img src="${p.foto}" loading="lazy" alt="${escHtml(p.legenda||'Foto de cliente')}"></div>
-      ${p.legenda ? `<div class="vsec-cap">${escHtml(p.legenda)}</div>` : ''}
-    </div>`).join('');
+  // Mesmo estilo dos depoimentos: card de altura fixa, largura pela proporção
+  // natural da foto (sem cortar e sem barra preta) e o carrossel troca de
+  // foto sozinho.
+  track.innerHTML = pfLista.map((p,i) =>
+    `<div class="dep-card" onclick="openPfLb(${i})"><img src="${p.foto}" loading="lazy" alt="${escHtml(p.legenda||'Foto de cliente')}"></div>`
+  ).join('');
   sec.style.display = 'block';
+  track.onscroll     = updatePfArrows;
+  track.onmouseenter = stopPfAuto;
+  track.onmouseleave = startPfAuto;
+  updatePfArrows();
+  startPfAuto();
 }
+
+function pfCardW(){ const c = document.querySelector('#pfsec-track .dep-card'); return c ? c.offsetWidth + 14 : 246; }
+
+function pfScroll(dir){
+  const t = document.getElementById('pfsec-track'); if(!t) return;
+  t.scrollBy({ left: dir * pfCardW(), behavior:'smooth' });
+  stopPfAuto(); setTimeout(startPfAuto, 6000);
+}
+
+function updatePfArrows(){
+  const t = document.getElementById('pfsec-track'); if(!t) return;
+  const max = t.scrollWidth - t.clientWidth - 2;
+  const p = document.getElementById('pfsec-prev'), n = document.getElementById('pfsec-next');
+  if(p) p.disabled = t.scrollLeft <= 2;
+  if(n) n.disabled = max <= 0 || t.scrollLeft >= max;
+}
+
+let pfAuto = null;
+function startPfAuto(){
+  stopPfAuto();
+  if(pfLista.length <= 1) return;
+  pfAuto = setInterval(()=>{
+    const t = document.getElementById('pfsec-track'); if(!t) return;
+    const max = t.scrollWidth - t.clientWidth - 2;
+    if(t.scrollLeft >= max) t.scrollTo({ left:0, behavior:'smooth' });
+    else t.scrollBy({ left: pfCardW(), behavior:'smooth' });
+  }, 4500);
+}
+function stopPfAuto(){ if(pfAuto){ clearInterval(pfAuto); pfAuto = null; } }
 
 function openPfLb(i){
   pfIdx = i;
@@ -1785,6 +1819,7 @@ function openPfLb(i){
   document.getElementById('pflb-cap').textContent = item.legenda || '';
   document.getElementById('pflb').classList.add('open');
   document.body.style.overflow = 'hidden';
+  stopPfAuto();
 }
 function pfLbNav(d){
   if(!pfLista.length) return;
@@ -1796,6 +1831,7 @@ function closePfLb(){
   if(!lb || !lb.classList.contains('open')) return;
   lb.classList.remove('open');
   document.body.style.overflow = '';
+  startPfAuto();
 }
 
 // ── MAIS PRODUTOS DA MESMA CATEGORIA (ordem da loja) ──────────────
