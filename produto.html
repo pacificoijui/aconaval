@@ -549,6 +549,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vsec-thumb.tocando .vsec-play{display:none}
     .vsec-card:has(.vsec-thumb.tocando){cursor:default}
     .vsec-card:has(.vsec-thumb.tocando):hover{transform:none;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+    /* Sem controles nativos do YouTube, o ✕ é a única forma de fechar/parar */
+    .vid-stop-btn{position:absolute;top:6px;right:6px;z-index:4;width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+    .vid-stop-btn:hover{background:rgba(0,0,0,.85)}
     /* .vlb* seguem em uso pelo lightbox das FOTOS de cliente (#pflb) */
     .vlb{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
     .vlb.open{display:flex}
@@ -1796,7 +1799,17 @@ function tocarVidNoCard(uid, ytId){
   if(!thumb || thumb.classList.contains('tocando')) return;
   thumb.dataset.capa = thumb.innerHTML;
   thumb.classList.add('tocando');
-  thumb.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+  // controls=0 tira toda a "casca" do YouTube (título, legenda, engrenagem,
+  // sugestões) — só fica o vídeo. Como isso também tira o play/pause nativo,
+  // o ✕ por cima é a única forma de parar o vídeo (fora apertar Esc).
+  thumb.innerHTML = `<iframe src="${embedYoutubeSrc(ytId)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    <button class="vid-stop-btn" onclick="event.stopPropagation(); restaurarCapaVid(this.closest('.vsec-thumb'))" aria-label="Fechar vídeo">✕</button>`;
+}
+// Embed "limpo": sem título/canal, sem sugestões, sem legenda por padrão,
+// sem atalhos de teclado — só o vídeo tocando.
+function embedYoutubeSrc(ytId){
+  return `https://www.youtube-nocookie.com/embed/${ytId}`
+    + '?autoplay=1&rel=0&controls=0&modestbranding=1&iv_load_policy=3&cc_load_policy=0&disablekb=1&fs=0';
 }
 function restaurarCapaVid(thumb){
   if(!thumb || !thumb.dataset.capa) return;

@@ -592,6 +592,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vid-thumb.tocando .vid-play{display:none}
     .vid-card:has(.vid-thumb.tocando){cursor:default}
     .vid-card:has(.vid-thumb.tocando):hover{transform:none;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+    /* Sem controles nativos do YouTube, o ✕ é a única forma de fechar/parar */
+    .vid-stop-btn{position:absolute;top:6px;right:6px;z-index:4;width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+    .vid-stop-btn:hover{background:rgba(0,0,0,.85)}
     .vid-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vid-play span{width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;padding-left:4px;transition:transform .15s}
     .vid-card:hover .vid-play span{transform:scale(1.1);background:rgba(24,95,165,.85)}
@@ -1530,7 +1533,17 @@ function tocarVidNoCard(id, ytId){
   if(!thumb || thumb.classList.contains('tocando')) return;
   thumb.dataset.capa = thumb.innerHTML;   // guarda a capa pra poder voltar
   thumb.classList.add('tocando');
-  thumb.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+  // controls=0 tira toda a "casca" do YouTube (título, legenda, engrenagem,
+  // sugestões) — só fica o vídeo. Como isso também tira o play/pause nativo,
+  // o ✕ por cima é a única forma de parar o vídeo (fora apertar Esc).
+  thumb.innerHTML = `<iframe src="${embedYoutubeSrc(ytId)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    <button class="vid-stop-btn" onclick="event.stopPropagation(); restaurarCapaVid(this.closest('.vid-thumb'))" aria-label="Fechar vídeo">✕</button>`;
+}
+// Embed "limpo": sem título/canal, sem sugestões, sem legenda por padrão,
+// sem atalhos de teclado — só o vídeo tocando.
+function embedYoutubeSrc(ytId){
+  return `https://www.youtube-nocookie.com/embed/${ytId}`
+    + '?autoplay=1&rel=0&controls=0&modestbranding=1&iv_load_policy=3&cc_load_policy=0&disablekb=1&fs=0';
 }
 function restaurarCapaVid(thumb){
   if(!thumb || !thumb.dataset.capa) return;
