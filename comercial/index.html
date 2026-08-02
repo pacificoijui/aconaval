@@ -1387,6 +1387,7 @@ let filtrosAtivos = {};   // ex: {"Largura":"70cm"}
 let categorias = [];      // ex: ["Fogão", "Chaminé", "Churrasqueira"]
 let catPrefixes = {};     // ex: {"Fogão":"FOG","Chaminé":"CHAM","Conjunto":"CONJ"}
 let catFotos = {};        // foto de capa por categoria, chave = slugCatWorker(cat): { "fogoes": "data:image/jpeg;base64,..." }
+let catPortfolioAlias = {}; // categoria sem portfólio próprio aponta pro de outra: {"Bancadas":"Área Gourmet Completa Sob Medida"}
 
 // Paleta de cores para os filtros (cicla pelo índice)
 const FILTRO_CORES = [
@@ -1529,7 +1530,7 @@ async function save() {
     await Promise.all([
       colOrc.doc('orcamentos').set({ lista: orcSemFoto }),
       colOrc.doc('produtos_index').set({ ids: produtos.map(p => p.id) }),
-      colOrc.doc('config').set({ filtrosDef, eixosDef, categorias, catPrefixes })
+      colOrc.doc('config').set({ filtrosDef, eixosDef, categorias, catPrefixes, catPortfolioAlias })
     ]);
 
     // Salva cada produto em documento separado (evita limite de 1MB).
@@ -1646,6 +1647,7 @@ async function loadFromFirebase() {
       if (Array.isArray(eixosDef)) eixosDef = {};
       categorias = cfgSnap.data().categorias || [];
       catPrefixes = cfgSnap.data().catPrefixes || {};
+      catPortfolioAlias = cfgSnap.data().catPortfolioAlias || {};
     }
     catFotos = {};
     catFotosSnap.docs.forEach(d => { catFotos[d.id] = d.data().foto; });
@@ -1678,6 +1680,7 @@ async function loadFromFirebase() {
     categorias = JSON.parse(localStorage.getItem('acn_categorias') || '[]');
     catPrefixes = JSON.parse(localStorage.getItem('acn_cat_prefixes') || '{}');
     catFotos = JSON.parse(localStorage.getItem('acn_cat_fotos') || '{}');
+    catPortfolioAlias = JSON.parse(localStorage.getItem('acn_cat_portfolio_alias') || '{}');
     if (!categorias.length && produtos.length) {
       categorias = [...new Set(produtos.map(p=>p.cat).filter(Boolean))];
     }
@@ -3176,6 +3179,15 @@ function renderFiltrosDefPanel(){
             <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:11px" onclick="removeCategoria('${cat.replace(/'/g,"\\'")}')">✕</button>
           </div>
         </div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#5b6b7d">
+          <span>📸 Portfólio desta categoria:</span>
+          <select style="font-size:12px;padding:3px 6px;border:1px solid #cdd5e0;border-radius:5px;background:#fff;cursor:pointer;max-width:220px"
+            onchange="setCatPortfolioAlias('${cat.replace(/'/g,"\\'")}', this.value)"
+            title="Se esta categoria não tem fotos próprias (ex: Bancadas, Fornos), aponte pro portfólio de outra categoria (ex: Área Gourmet Completa Sob Medida)">
+            <option value=""${!catPortfolioAlias[cat]?' selected':''}>usa o próprio portfólio</option>
+            ${categorias.filter(c=>c!==cat).map(c=>`<option value="${c}"${catPortfolioAlias[cat]===c?' selected':''}>usa o de: ${c}</option>`).join('')}
+          </select>
+        </div>
         <div class="cat-eixos" style="margin-top:8px">
           ${fs.length ? fs.map((f,i)=>`
             <div class="eixo-row" data-reo="filtro" data-ci="${catIdx}" data-fi="${i}">
@@ -3245,6 +3257,15 @@ function savePrefix(cat){
   saveConfig();
 }
 
+// Categoria sem fotos próprias de clientes (ex: Bancadas, Fornos avulsos)
+// pode apontar pro portfólio de outra categoria (ex: Área Gourmet Completa
+// Sob Medida) — usado na página do produto e nos atalhos da loja.
+function setCatPortfolioAlias(cat, aliasCat){
+  if(aliasCat) catPortfolioAlias[cat] = aliasCat;
+  else delete catPortfolioAlias[cat];
+  saveConfig();
+}
+
 function saveCategoriaNome(catAntigo){
   const slug = slugify(catAntigo);
   const el = document.getElementById('nome-edit-'+slug);
@@ -3264,6 +3285,11 @@ function saveCategoriaNome(catAntigo){
 
   // Migra catPrefixes
   if(catPrefixes[catAntigo]) { catPrefixes[novoNome] = catPrefixes[catAntigo]; delete catPrefixes[catAntigo]; }
+
+  // Migra o alias de portfólio — tanto se ESTA categoria apontava pra outra,
+  // quanto se OUTRAS categorias apontavam pro portfólio DESTA (agora renomeada)
+  if(catPortfolioAlias[catAntigo]) { catPortfolioAlias[novoNome] = catPortfolioAlias[catAntigo]; delete catPortfolioAlias[catAntigo]; }
+  Object.keys(catPortfolioAlias).forEach(k => { if(catPortfolioAlias[k] === catAntigo) catPortfolioAlias[k] = novoNome; });
 
   // Migra a foto de capa (fica salva por slug — precisa mover de doc no Firestore)
   const slugAntigo = slugCatWorker(catAntigo), slugNovo = slugCatWorker(novoNome);
@@ -3296,6 +3322,9 @@ function removeCategoria(cat){
     delete filtrosDef[cat];
     delete eixosDef[cat];   // sem isto, a migração recriava os filtros da categoria a partir dos eixos antigos
     delete catPrefixes[cat];
+    delete catPortfolioAlias[cat];
+    // Categorias que apontavam o portfólio pra esta (agora removida) voltam a usar o próprio
+    Object.keys(catPortfolioAlias).forEach(k => { if(catPortfolioAlias[k] === cat) delete catPortfolioAlias[k]; });
     const slugDaCat = slugCatWorker(cat);
     delete catFotos[slugDaCat];
     if (db) db.collection('acn_cat_fotos').doc(slugDaCat).delete().catch(()=>{});
@@ -3429,11 +3458,12 @@ function removeValorFiltroDef(cat, i, j){
 
 async function saveConfig(){
   try {
-    if(db) await db.collection('acn').doc('config').set({ filtrosDef, eixosDef, categorias, catPrefixes });
+    if(db) await db.collection('acn').doc('config').set({ filtrosDef, eixosDef, categorias, catPrefixes, catPortfolioAlias });
     localStorage.setItem('acn_filtros_def', JSON.stringify(filtrosDef));
     localStorage.setItem('acn_eixos_def', JSON.stringify(eixosDef));
     localStorage.setItem('acn_categorias', JSON.stringify(categorias));
     localStorage.setItem('acn_cat_prefixes', JSON.stringify(catPrefixes));
+    localStorage.setItem('acn_cat_portfolio_alias', JSON.stringify(catPortfolioAlias));
   } catch(e){ console.error('saveConfig error',e); }
 }
 

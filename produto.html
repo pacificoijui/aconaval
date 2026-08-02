@@ -1821,12 +1821,26 @@ function restaurarCapaVid(thumb){
 // ── PORTFÓLIO DA CATEGORIA (fotos de clientes) ────────────────────
 let pfLista = [], pfIdx = 0;
 
+// Categoria sem portfólio próprio (ex: Bancadas, Fornos) pode apontar pro
+// de outra (ex: Área Gourmet Completa Sob Medida) — configurado no admin,
+// no painel "Categorias e Filtros". Busca só uma vez e reaproveita.
+let _catPortfolioAliasPromise = null;
+function carregarCatPortfolioAlias(){
+  if(_catPortfolioAliasPromise) return _catPortfolioAliasPromise;
+  _catPortfolioAliasPromise = db.collection('acn').doc('config').get()
+    .then(snap => snap.exists ? (snap.data().catPortfolioAlias || {}) : {})
+    .catch(() => ({}));
+  return _catPortfolioAliasPromise;
+}
+
 async function carregarPortfolioDaCategoria(cat){
   const sec = document.getElementById('pfsec');
   const track = document.getElementById('pfsec-track');
   if(!cat || !sec || !track) return;
+  const alias = await carregarCatPortfolioAlias();
+  const catReal = alias[cat] || cat;
   try{
-    const snap = await db.collection('acn_portfolio').where('cat','==',cat).get();
+    const snap = await db.collection('acn_portfolio').where('cat','==',catReal).get();
     pfLista = snap.docs.map(d=>d.data())
                        .filter(p => p.foto && p.ativo !== false)
                        .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
@@ -1834,9 +1848,9 @@ async function carregarPortfolioDaCategoria(cat){
   if(!pfLista.length){ sec.style.display='none'; return; }
 
   document.getElementById('pfsec-sub').textContent =
-    `${pfLista.length} foto${pfLista.length>1?'s':''} de ${cat} já instalado${pfLista.length>1?'s':''} em clientes`;
+    `${pfLista.length} foto${pfLista.length>1?'s':''} de ${catReal} já instalado${pfLista.length>1?'s':''} em clientes`;
   const link = document.getElementById('pfsec-link');
-  link.href = './#portfolio/' + slugCat(cat);
+  link.href = './#portfolio/' + slugCat(catReal);
   link.style.display = pfLista.length > 1 ? '' : 'none';
 
   // Mesmo estilo dos depoimentos: card de altura fixa, largura pela proporção
