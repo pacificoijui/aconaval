@@ -2856,10 +2856,12 @@ function copiarOrcamentoWhatsApp(id, btnEl) {
   const texto = `*${prod.nome}*
 
 💳 Em 12x sem juros no cartão: *R$ ${fmt(preco / 12)}*
+
 💵 À vista com 10% de desconto: *R$ ${fmt(preco * 0.9)}*
 
 🚚 *Frete grátis, pague somente ao receber*
-🔧 *Já acompanha os canos*`;
+
+Acompanha o kit de instalação. 3 metros de canos galvanizados, círculo de acabamento de teto e chapéu chinês.`;
 
   const textoOriginal = btnEl ? btnEl.innerHTML : '';
   function avisar(ok) {
