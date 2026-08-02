@@ -534,22 +534,28 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vsec-link:hover{background:#dceafa}
     .vsec-track{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x proximity;padding:4px 2px 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
     .vsec-track::-webkit-scrollbar{display:none}
-    .vsec-card{flex:0 0 auto;width:260px;scroll-snap-align:start;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);transition:transform .15s,box-shadow .15s}
+    .vsec-card{flex:0 0 auto;width:420px;max-width:86vw;scroll-snap-align:start;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);transition:transform .15s,box-shadow .15s}
     .vsec-card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(0,0,0,.13)}
-    .vsec-thumb{position:relative;background:#0b141a;aspect-ratio:16/10}
+    .vsec-thumb{position:relative;background:#0b141a;aspect-ratio:16/9}
     .vsec-thumb img{width:100%;height:100%;object-fit:cover;display:block}
     .vsec-thumb .vsec-fb{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:34px;color:rgba(255,255,255,.5)}
     .vsec-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-    .vsec-play span{width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:19px;padding-left:4px;transition:transform .15s}
+    .vsec-play span{width:58px;height:58px;border-radius:50%;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:21px;padding-left:4px;transition:transform .15s}
     .vsec-card:hover .vsec-play span{transform:scale(1.1);background:rgba(24,95,165,.85)}
     .vsec-cap{padding:9px 11px;font-size:13px;font-weight:600;color:var(--navy);line-height:1.35}
+    /* Vídeo toca dentro do próprio card, sem modal por cima */
+    .vsec-thumb.tocando{cursor:default}
+    .vsec-thumb.tocando iframe{width:100%;height:100%;display:block;border:none}
+    .vsec-thumb.tocando .vsec-play{display:none}
+    .vsec-card:has(.vsec-thumb.tocando){cursor:default}
+    .vsec-card:has(.vsec-thumb.tocando):hover{transform:none;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+    /* .vlb* seguem em uso pelo lightbox das FOTOS de cliente (#pflb) */
     .vlb{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
     .vlb.open{display:flex}
     .vlb-box{max-width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:10px;align-items:center}
-    .vlb-box iframe{width:min(92vw,960px);aspect-ratio:16/9;max-height:78vh;border-radius:10px;background:#000;display:block;border:none}
     .vlb-title{color:#fff;font-size:14px;text-align:center;max-width:92vw}
     .vlb-close{position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:9px;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:20px;cursor:pointer;z-index:2}
-    @media(max-width:640px){ .vsec-card{width:220px} }
+    @media(max-width:640px){ .vsec-card{width:86vw} }
   </style>
 
   <div class="vsec" id="vsec" style="display:none">
@@ -561,14 +567,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <a class="vsec-link" id="vsec-link" href="#">Ver todos os vídeos →</a>
     </div>
     <div class="vsec-track" id="vsec-track"></div>
-  </div>
-
-  <div class="vlb" id="vlb" onclick="if(event.target===this)closeVidLb()">
-    <button class="vlb-close" onclick="closeVidLb()" aria-label="Fechar">✕</button>
-    <div class="vlb-box">
-      <iframe id="vlb-player" src="" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-      <div class="vlb-title" id="vlb-title"></div>
-    </div>
   </div>
 
   <!-- PORTFÓLIO DA CATEGORIA (fotos de clientes) -->
@@ -593,6 +591,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <img id="pflb-img" src="" alt="Foto de cliente" style="max-width:92vw;max-height:78vh;object-fit:contain;border-radius:10px;display:block">
       <div class="vlb-title" id="pflb-cap"></div>
     </div>
+  </div>
+
+  <!-- VÍDEOS DESTE PRODUTO (cadastrados no próprio produto) -->
+  <div class="vsec" id="pvsec" style="display:none">
+    <div class="vsec-head">
+      <div>
+        <div class="vsec-title">🎬 Vídeo deste produto</div>
+        <div class="vsec-sub" id="pvsec-sub">Veja este modelo de perto e em funcionamento</div>
+      </div>
+    </div>
+    <div class="vsec-track" id="pvsec-track"></div>
   </div>
 
   <!-- DEPOIMENTOS -->
@@ -1654,6 +1663,7 @@ setupGestures();
     carregarDepoimentos(produto.cat);
     carregarVideosDaCategoria(produto.cat);
     carregarPortfolioDaCategoria(produto.cat);
+    carregarVideosDoProduto(produto);
     carregarRelacionados(produto.cat, produto.id);
     atualizarWhatsApp();
     renderEspelhoToggle();
@@ -1720,32 +1730,62 @@ async function carregarVideosDaCategoria(cat){
   link.href = './#videos/' + slugCat(cat);
   link.style.display = lista.length > 1 ? '' : 'none';
 
-  track.innerHTML = lista.map(v => `
-    <div class="vsec-card" onclick="openVidLb('${v.ytId}','${encodeURIComponent(v.titulo||'')}')">
-      <div class="vsec-thumb">
-        <img src="https://img.youtube.com/vi/${v.ytId}/hqdefault.jpg" loading="lazy" alt="${escHtml(v.titulo||'Vídeo')}">
-        <div class="vsec-play"><span>▶</span></div>
-      </div>
-      <div class="vsec-cap">${escHtml(v.titulo || ('Vídeo · ' + cat))}</div>
-    </div>`).join('');
+  track.innerHTML = lista.map(v => cardDeVideo(v.ytId, v.titulo || ('Vídeo · ' + cat))).join('');
   sec.style.display = 'block';
 }
 
-function openVidLb(ytId, tituloEnc){
-  const player = document.getElementById('vlb-player');
-  player.src = `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`;
-  document.getElementById('vlb-title').textContent = decodeURIComponent(tituloEnc || '');
-  document.getElementById('vlb').classList.add('open');
-  document.body.style.overflow = 'hidden';
+// ── VÍDEOS DO PRÓPRIO PRODUTO ─────────────────────────────────────
+// Links cadastrados no produto (campo "videos"), não na categoria. Ficam
+// logo depois das fotos de clientes.
+function carregarVideosDoProduto(prod){
+  const sec = document.getElementById('pvsec');
+  const track = document.getElementById('pvsec-track');
+  if(!sec || !track) return;
+  const lista = (prod && Array.isArray(prod.videos) ? prod.videos : []).filter(Boolean);
+  if(!lista.length){ sec.style.display='none'; return; }
+  document.getElementById('pvsec-sub').textContent = lista.length > 1
+    ? `${lista.length} vídeos deste modelo — clique pra assistir`
+    : 'Clique pra assistir';
+  track.innerHTML = lista.map((ytId, i) =>
+    cardDeVideo(ytId, lista.length > 1 ? `Vídeo ${i+1}` : (prod.nome || 'Vídeo'))
+  ).join('');
+  sec.style.display = 'block';
 }
-function closeVidLb(){
-  const lb = document.getElementById('vlb');
-  if(!lb || !lb.classList.contains('open')) return;
-  // Limpar o src do iframe é o que realmente para o vídeo — sem isso ele
-  // continua tocando (e "baixando") escondido atrás do modal fechado.
-  document.getElementById('vlb-player').src = '';
-  lb.classList.remove('open');
-  document.body.style.overflow = '';
+
+// Card de vídeo com a capa do YouTube. O player entra no lugar da capa
+// quando o cliente clica (sem modal por cima).
+let _vidSeq = 0;
+function cardDeVideo(ytId, titulo){
+  const uid = 'pv' + (++_vidSeq);
+  return `
+    <div class="vsec-card" id="card-${uid}">
+      <div class="vsec-thumb" onclick="tocarVidNoCard('${uid}','${ytId}')">
+        <img src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" loading="lazy" alt="${escHtml(titulo||'Vídeo')}">
+        <div class="vsec-play"><span>▶</span></div>
+      </div>
+      <div class="vsec-cap">${escHtml(titulo || 'Vídeo')}</div>
+    </div>`;
+}
+
+// Troca a capa pelo iframe do YouTube dentro do próprio card. Só um vídeo
+// toca por vez — o anterior volta a ser capa (o que também para o vídeo).
+function tocarVidNoCard(uid, ytId){
+  const card = document.getElementById('card-' + uid);
+  if(!card) return;
+  document.querySelectorAll('.vsec-thumb.tocando').forEach(t => {
+    if(t.closest('.vsec-card') !== card) restaurarCapaVid(t);
+  });
+  const thumb = card.querySelector('.vsec-thumb');
+  if(!thumb || thumb.classList.contains('tocando')) return;
+  thumb.dataset.capa = thumb.innerHTML;
+  thumb.classList.add('tocando');
+  thumb.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+}
+function restaurarCapaVid(thumb){
+  if(!thumb || !thumb.dataset.capa) return;
+  thumb.innerHTML = thumb.dataset.capa;   // tira o iframe: o vídeo para
+  thumb.classList.remove('tocando');
+  delete thumb.dataset.capa;
 }
 
 // ── PORTFÓLIO DA CATEGORIA (fotos de clientes) ────────────────────
@@ -2196,8 +2236,8 @@ document.addEventListener('keydown', e => {
     if(e.key==='Escape') closePfLb();
     return;
   }
-  // Player de vídeo: Esc fecha
-  if (e.key === 'Escape') closeVidLb();
+  // Vídeo tocando dentro do card: Esc volta pra capa (e para o vídeo)
+  if (e.key === 'Escape') document.querySelectorAll('.vsec-thumb.tocando').forEach(restaurarCapaVid);
 });
 
 // Campo com erro volta ao normal assim que a pessoa começa a corrigir

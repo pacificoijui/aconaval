@@ -585,6 +585,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     .vid-thumb{position:relative;background:#0b141a;aspect-ratio:16/10;display:block}
     .vid-thumb img{width:100%;height:100%;object-fit:cover;display:block}
     .vid-thumb .vid-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:38px;color:rgba(255,255,255,.5)}
+    /* Vídeo tocando dentro do card (sem modal): o iframe do YouTube ocupa a
+       mesma caixa da capa, em 16/9 pra não cortar as bordas do vídeo. */
+    .vid-thumb.tocando{aspect-ratio:16/9;cursor:default}
+    .vid-thumb.tocando iframe{width:100%;height:100%;display:block;border:none}
+    .vid-thumb.tocando .vid-play{display:none}
+    .vid-card:has(.vid-thumb.tocando){cursor:default}
+    .vid-card:has(.vid-thumb.tocando):hover{transform:none;box-shadow:0 1px 6px rgba(0,0,0,.07)}
     .vid-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vid-play span{width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);border:2px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;padding-left:4px;transition:transform .15s}
     .vid-card:hover .vid-play span{transform:scale(1.1);background:rgba(24,95,165,.85)}
@@ -636,23 +643,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div id="pflb-cap" style="color:#fff;font-size:14px;text-align:center;max-width:88vw"></div>
     </div>
     <button class="deplb-nav" id="pflb-next" onclick="pfLbNav(1)" aria-label="Próxima">›</button>
-  </div>
-</div>
-
-<!-- PLAYER DE VÍDEO -->
-<style>
-  .vidlb{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
-  .vidlb.open{display:flex}
-  .vidlb-box{max-width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:10px;align-items:center}
-  .vidlb-box iframe{width:min(92vw,960px);aspect-ratio:16/9;max-height:78vh;border-radius:10px;background:#000;display:block;border:none}
-  .vidlb-title{color:#fff;font-size:14px;text-align:center;max-width:92vw}
-  .vidlb-close{position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:9px;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:20px;cursor:pointer;z-index:2}
-</style>
-<div class="vidlb" id="vidlb" onclick="if(event.target===this)closeVidLb()">
-  <button class="vidlb-close" onclick="closeVidLb()" aria-label="Fechar">✕</button>
-  <div class="vidlb-box">
-    <iframe id="vidlb-player" src="" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-    <div class="vidlb-title" id="vidlb-title"></div>
   </div>
 </div>
 
@@ -1319,6 +1309,7 @@ function depHashAtual(){
 function showDepoimentos(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
+  pararVideosDaGaleria();
   document.getElementById('vid-view').style.display = 'none';
   document.getElementById('pf-view').style.display = 'none';
   document.getElementById('dep-view').style.display = 'block';
@@ -1471,8 +1462,13 @@ function showVideos(pularHistorico){
   }
   window.scrollTo({ top:0, behavior:'smooth' });
 }
+// Sair da galeria (ou trocar de tela) precisa parar o que estiver tocando —
+// senão o iframe continua rodando escondido junto com a tela.
+function pararVideosDaGaleria(){
+  document.querySelectorAll('#vid-grid .vid-thumb.tocando').forEach(restaurarCapaVid);
+}
 function backToCatalogFromVid(pularHistorico){
-  closeVidLb();
+  pararVideosDaGaleria();
   document.getElementById('vid-view').style.display = 'none';
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = '';
   document.getElementById('catalog-view').classList.remove('hidden');
@@ -1510,9 +1506,11 @@ function renderVidGrid(){
   if(!list.length){ grid.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   // O vídeo em si só é baixado quando o cliente clica: aqui vai só a capa.
+  // Toca dentro da própria página: clicar troca a capa pelo player do YouTube
+  // no lugar do card, sem abrir modal por cima.
   grid.innerHTML = list.map(v => `
-    <div class="vid-card" onclick="openVidLb('${v.ytId}', '${encodeURIComponent(v.titulo||'')}')">
-      <div class="vid-thumb">
+    <div class="vid-card" id="vidcard-${v.id}">
+      <div class="vid-thumb" onclick="tocarVidNoCard('${v.id}', '${v.ytId}')">
         ${v.ytId ? `<img src="https://img.youtube.com/vi/${v.ytId}/hqdefault.jpg" loading="lazy" alt="${escHtml(v.titulo||'Vídeo')}">` : `<div class="vid-fallback">🎬</div>`}
         <div class="vid-play"><span>▶</span></div>
       </div>
@@ -1520,25 +1518,26 @@ function renderVidGrid(){
     </div>`).join('');
 }
 
-function openVidLb(ytId, tituloEnc){
-  const player = document.getElementById('vidlb-player');
-  player.src = `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`;
-  document.getElementById('vidlb-title').textContent = decodeURIComponent(tituloEnc || '');
-  document.getElementById('vidlb').classList.add('open');
-  document.body.style.overflow = 'hidden';
+// Substitui a capa pelo iframe do YouTube dentro do próprio card. Só um vídeo
+// toca por vez: se já houver outro tocando, ele volta a ser capa.
+function tocarVidNoCard(id, ytId){
+  const card = document.getElementById('vidcard-' + id);
+  if(!card) return;
+  document.querySelectorAll('#vid-grid .vid-thumb.tocando').forEach(t => {
+    if(t.closest('.vid-card') !== card) restaurarCapaVid(t);
+  });
+  const thumb = card.querySelector('.vid-thumb');
+  if(!thumb || thumb.classList.contains('tocando')) return;
+  thumb.dataset.capa = thumb.innerHTML;   // guarda a capa pra poder voltar
+  thumb.classList.add('tocando');
+  thumb.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
 }
-function closeVidLb(){
-  const lb = document.getElementById('vidlb');
-  if(!lb || !lb.classList.contains('open')) return;
-  // Limpar o src do iframe é o que realmente para o vídeo — sem isso ele
-  // continua tocando (e "baixando") escondido atrás do modal fechado.
-  document.getElementById('vidlb-player').src = '';
-  lb.classList.remove('open');
-  document.body.style.overflow = '';
+function restaurarCapaVid(thumb){
+  if(!thumb || !thumb.dataset.capa) return;
+  thumb.innerHTML = thumb.dataset.capa;   // tira o iframe: o vídeo para de tocar
+  thumb.classList.remove('tocando');
+  delete thumb.dataset.capa;
 }
-document.addEventListener('keydown', e => {
-  if(e.key === 'Escape') closeVidLb();
-});
 
 // ── PORTFÓLIO (fotos de clientes por categoria) ──────────────────
 let portfolio = [];
@@ -1578,6 +1577,7 @@ function showPortfolio(pularHistorico){
   document.getElementById('catalog-view').classList.add('hidden');
   const hero = document.getElementById('main-hero'); if(hero) hero.style.display = 'none';
   document.getElementById('dep-view').style.display = 'none';
+  pararVideosDaGaleria();
   document.getElementById('vid-view').style.display = 'none';
   document.getElementById('pf-view').style.display = 'block';
   renderPfCategories();

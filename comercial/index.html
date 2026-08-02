@@ -658,6 +658,15 @@ tbody tr:hover{background:#fafbfc}
         </div>
         <input type="file" id="inp-foto-clientes" accept="image/*" multiple style="display:none" onchange="onFotoClienteChange(event)"/>
       </div>
+      <div class="form-group" id="grupo-videos-produto">
+        <label class="form-label">🎬 Vídeos deste produto <span style="font-weight:400;color:#888;font-size:11px">(links do YouTube — aparecem na página do produto, logo depois das fotos de clientes)</span></label>
+        <div id="videos-prod-lista" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="inp-video-prod" class="form-input" style="flex:1;min-width:220px" placeholder="Cole o link do YouTube deste produto" onkeydown="if(event.key==='Enter'){event.preventDefault();addVideoProduto()}">
+          <button type="button" class="btn btn-ghost" style="color:#185FA5;border-color:#B5D4F4;white-space:nowrap" onclick="addVideoProduto()">＋ Adicionar</button>
+        </div>
+        <div style="font-size:11px;color:#bbb;margin-top:4px">Pode adicionar mais de um. O vídeo precisa estar público ou não listado no YouTube.</div>
+      </div>
       <div class="form-group" id="glb-wrap">
         <label class="form-label">🧊 Modelo 3D (GLB) <span style="font-weight:400;color:#888;font-size:11px">— visualização interativa 360° para o cliente</span></label>
         <div id="glb-current" style="display:none;align-items:center;gap:8px;padding:8px 10px;background:#f0f6ff;border:1px solid #B5D4F4;border-radius:6px;margin-bottom:6px">
@@ -2080,6 +2089,9 @@ function clearProdForm() {
   renderProjetoThumbs();
   currentFotosClientesBase64 = [];
   renderClienteThumbs();
+  currentVideosProduto = [];
+  renderVideosProdutoLista();
+  { const vinp = document.getElementById('inp-video-prod'); if (vinp) vinp.value = ''; }
   currentGlbFile = null;
   currentModelo3dUrl = null;
   { const espChk = document.getElementById('inp-espelhavel'); if (espChk) espChk.checked = false; }
@@ -2448,6 +2460,40 @@ function removeFotoCliente(idx) {
   }
 }
 
+// ── Vídeos do PRODUCTO (links do YouTube, guardados no próprio produto) ──
+// Diferente da aba "Vídeos", que é por categoria: aqui é o vídeo daquele
+// produto específico. Guarda só o ID do YouTube (11 caracteres), então cabe
+// tranquilo dentro do documento do produto.
+let currentVideosProduto = [];
+
+function addVideoProduto() {
+  const inp = document.getElementById('inp-video-prod');
+  if (!inp) return;
+  const ytId = extrairYoutubeId(inp.value);
+  if (!ytId) { alert('Não reconheci esse link do YouTube. Cole o link completo do vídeo (ex: youtube.com/watch?v=... ou youtu.be/...).'); return; }
+  if (currentVideosProduto.includes(ytId)) { alert('Esse vídeo já está na lista.'); inp.value = ''; return; }
+  currentVideosProduto.push(ytId);
+  inp.value = '';
+  renderVideosProdutoLista();
+}
+
+function removeVideoProduto(idx) {
+  currentVideosProduto.splice(idx, 1);
+  renderVideosProdutoLista();
+}
+
+function renderVideosProdutoLista() {
+  const wrap = document.getElementById('videos-prod-lista');
+  if (!wrap) return;
+  if (!currentVideosProduto.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = currentVideosProduto.map((ytId, idx) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f0f6ff;border:1px solid #B5D4F4;border-radius:6px">
+      <img src="https://img.youtube.com/vi/${ytId}/default.jpg" style="width:60px;height:34px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#0b141a">
+      <a href="https://youtu.be/${ytId}" target="_blank" rel="noopener" style="flex:1;font-size:12px;color:#185FA5;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">youtu.be/${ytId}</a>
+      <button type="button" onclick="removeVideoProduto(${idx})" style="background:#A32D2D;color:#fff;border:none;border-radius:4px;width:22px;height:22px;font-size:11px;cursor:pointer;flex-shrink:0;padding:0">✕</button>
+    </div>`).join('');
+}
+
 function renderClienteThumbs() {
   const wrap = document.getElementById('clientes-thumbs-wrap');
   if (!wrap) return;
@@ -2725,7 +2771,8 @@ async function saveProduto() {
       if (String(codigoFinal || '').includes('-')) codigoFinal = proximoCodigoLivrePorCat(cat);
       produtos[idx] = { ...produtos[idx], nome, dim, preco:precoFinal, cat, obs, codigo:codigoFinal, filtros, tipoProd, componentes,
         ehVariacao: false, paiId: null, combo: null, comboPadrao: null, eixo: null,
-        modelo3d: modelo3dUrl || produtos[idx].modelo3d || null, espelhavel: ehEspelhavel };
+        modelo3d: modelo3dUrl || produtos[idx].modelo3d || null, espelhavel: ehEspelhavel,
+        videos: [...currentVideosProduto] };
       if (currentFotoBase64 !== null) produtos[idx].foto = currentFotoBase64;
       produtos[idx].fotosprojeto = [...currentFotosProjetoBase64];
       if (currentFotoDirBase64 !== null) produtos[idx].fotoDir = currentFotoDirBase64;
@@ -2736,7 +2783,8 @@ async function saveProduto() {
     produtos.push({ id: prodId, nome, dim, preco:precoFinal, cat, obs, codigo:proximoCodigo, filtros, tipoProd, componentes,
       ehVariacao: false, paiId: null, combo: null, comboPadrao: null, eixo: null,
       foto: currentFotoBase64 || '', fotosprojeto: [...currentFotosProjetoBase64], modelo3d: modelo3dUrl || null, espelhavel: ehEspelhavel,
-      fotoDir: currentFotoDirBase64 || null, fotosprojetoDir: [...currentFotosProjetoDirBase64] });
+      fotoDir: currentFotoDirBase64 || null, fotosprojetoDir: [...currentFotosProjetoDirBase64],
+      videos: [...currentVideosProduto] });
   }
   save(); renderProdutos(); cancelProdForm();
 }
@@ -2772,6 +2820,8 @@ function editProduto(id) {
     currentFotosClientesBase64 = fc || [];
     renderClienteThumbs();
   });
+  currentVideosProduto = Array.isArray(p.videos) ? [...p.videos] : [];
+  renderVideosProdutoLista();
   // Restaura modelo 3D
   currentGlbFile = null;
   if (p.modelo3d) {
