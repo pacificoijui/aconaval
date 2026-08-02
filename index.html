@@ -61,14 +61,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   transition:background .15s;position:relative
 }
 .cart-btn:hover{background:#1269b5}
-/* Promo dentro da barra escura do topo (só desktop) */
-.topbar-promo{display:none}
-@media(min-width:992px){
-  .topbar-promo{display:flex;flex:1;justify-content:center;align-items:center;gap:14px;color:#fff;font-size:12.5px;font-weight:500;white-space:nowrap;padding:0 16px;min-width:0;overflow:hidden}
-  .topbar-promo strong{font-weight:700}
-  .topbar-promo .tp-sep{opacity:.45}
-  .destaque-bar{display:none}   /* no desktop a frase sobe pro topo */
-}
 
 /* ── HERO ── */
 .hero{
@@ -85,24 +77,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .hero h1{font-family:'Inter',sans-serif;font-size:clamp(28px,5vw,46px);font-weight:700;color:#fff;letter-spacing:.5px;margin-bottom:8px;line-height:1.1}
 .hero h1 span{color:#7EC8F4}
 .hero p{color:rgba(255,255,255,.75);font-size:15px;max-width:500px;margin:0 auto 20px}
-.destaque-bar{
-  background:linear-gradient(90deg,var(--navy),var(--blue));color:#fff;
-  overflow:hidden;white-space:nowrap;padding:9px 0;font-size:13px;font-weight:500
-}
-.destaque-track{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;padding:0 16px}
-.destaque-item{display:inline-flex;align-items:center;gap:5px}
-.destaque-item strong{font-weight:700}
-.destaque-sep{opacity:.5}
-@media(max-width:768px){
-  .destaque-bar{font-size:11.5px;padding:7px 10px;white-space:normal}
-  .destaque-track{flex-wrap:wrap;justify-content:center;gap:6px 12px;white-space:normal}
-  .destaque-sep{display:none}
+/* ── ATALHOS GLOBAIS (vídeos / fotos de clientes / depoimentos) ──
+   Fica acima do card "Compre com confiança total". Aparecem só quando existe
+   conteúdo daquele tipo (mesma lógica dos botões de atalho no header). */
+.hero-acoes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+.ha-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.28);color:#fff;font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
+.ha-btn:hover{background:rgba(255,255,255,.24);transform:translateY(-1px)}
+@media(max-width:420px){
+  .hero-acoes{gap:6px;margin-bottom:12px}
+  .ha-btn{font-size:12px;padding:6px 12px;gap:5px}
 }
 .hero-trust{display:flex;align-items:center;gap:14px;justify-content:center;max-width:560px;margin:0 auto;background:linear-gradient(135deg,#16a34a,#0f6e34);border:1px solid rgba(255,255,255,.22);border-radius:14px;padding:15px 18px;box-shadow:0 6px 20px rgba(10,90,40,.35);text-align:left}
 .hero-trust-icon{font-size:34px;line-height:1;flex-shrink:0}
 .hero-trust-title{font-family:'Inter',sans-serif;font-size:20px;font-weight:800;color:#fff;line-height:1.15}
 .hero-trust-sub{font-size:13.5px;color:#DCF5E5;margin-top:3px;font-weight:600;line-height:1.3}
-/* Desktop: frete mais pra cima + card de confiança numa linha só (não afeta o celular) */
+/* Desktop: card de confiança numa linha só (não afeta o celular) */
 @media(min-width:992px){
   .hero{padding:16px 24px 18px}
   .hero-trust{display:inline-flex;max-width:none;width:auto;margin:0 auto;padding:13px 24px}
@@ -437,11 +426,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <small>Catálogo Online</small>
     </div>
   </div>
-  <div class="topbar-promo">
-    <span>🚚 <strong>Frete grátis</strong> Sul/Sudeste/C.Oeste</span>
-    <span class="tp-sep">•</span>
-    <span>💳 <strong>12x sem juros</strong> no cartão</span>
-  </div>
   <div style="display:flex;gap:10px;align-items:center">
     <button class="cart-btn" id="pf-nav-btn" onclick="showPortfolio()" style="display:none;background:rgba(255,255,255,.14)">
       📸 <span class="label">PORTFÓLIO</span>
@@ -455,18 +439,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
 </header>
 
-<!-- BARRA DE DESTAQUE -->
-<div class="destaque-bar">
-  <div class="destaque-track">
-    <span class="destaque-item">🚚 <strong>Frete grátis</strong> para Sul, Sudeste e Centro-Oeste</span>
-    <span class="destaque-sep">•</span>
-    <span class="destaque-item">💳 <strong>12x sem juros</strong> no cartão</span>
-  </div>
-</div>
-
 <!-- HERO -->
 <div class="hero" id="main-hero">
   <div class="hero-content">
+    <div class="hero-acoes" id="hero-acoes">
+      <button class="ha-btn" id="hero-vid-btn" onclick="showVideos()" style="display:none">🎬 Vídeos</button>
+      <button class="ha-btn" id="hero-pf-btn" onclick="showPortfolio()" style="display:none">📸 Fotos de clientes</button>
+      <button class="ha-btn" id="hero-dep-btn" onclick="showDepoimentos()" style="display:none">💬 Depoimentos</button>
+    </div>
     <div class="hero-trust">
       <span class="hero-trust-icon">🛡️</span>
       <div>
@@ -1292,6 +1272,8 @@ async function loadDepoimentos(){
   }catch(e){ console.error('depoimentos:', e); depoimentos = []; }
   const btn = document.getElementById('dep-nav-btn');
   if(btn) btn.style.display = depoimentos.some(d => d.ativo !== false) ? 'flex' : 'none';
+  const heroBtn = document.getElementById('hero-dep-btn');
+  if(heroBtn) heroBtn.style.display = depoimentos.some(d => d.ativo !== false) ? 'inline-flex' : 'none';
   renderAcoesCategoria();
   if(document.getElementById('dep-view').style.display === 'block'){ renderDepCategories(); renderDepGrid(); }
   // Link direto: aconaval.com/#depoimentos (ou #depoimentos/<categoria>) abre a tela na hora
@@ -1435,6 +1417,8 @@ async function loadVideos(){
   }catch(e){ console.error('videos:', e); videos = []; }
   const btn = document.getElementById('vid-nav-btn');
   if(btn) btn.style.display = videos.some(v => v.ativo !== false) ? 'flex' : 'none';
+  const heroBtn = document.getElementById('hero-vid-btn');
+  if(heroBtn) heroBtn.style.display = videos.some(v => v.ativo !== false) ? 'inline-flex' : 'none';
   renderAcoesCategoria();
   if(document.getElementById('vid-view').style.display === 'block'){ renderVidCategories(); renderVidGrid(); }
   // Link direto: aconaval.com/#videos (ou #videos/<categoria>) abre a tela na hora
@@ -1572,6 +1556,8 @@ async function loadPortfolio(){
   }catch(e){ console.error('portfolio:', e); portfolio = []; }
   const btn = document.getElementById('pf-nav-btn');
   if(btn) btn.style.display = portfolio.some(p => p.ativo !== false) ? 'flex' : 'none';
+  const heroBtn = document.getElementById('hero-pf-btn');
+  if(heroBtn) heroBtn.style.display = portfolio.some(p => p.ativo !== false) ? 'inline-flex' : 'none';
   renderAcoesCategoria();
   if(document.getElementById('pf-view').style.display === 'block'){ renderPfCategories(); renderPfGrid(); }
   // Link direto: aconaval.com/#portfolio (ou #portfolio/<categoria>)
