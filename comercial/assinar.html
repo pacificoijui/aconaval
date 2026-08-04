@@ -229,6 +229,24 @@
   </div>
 </div>
 
+<!-- ERRO DE CONEXÃO — separado do "não encontrado": antes qualquer falha de rede
+     virava "verifique o link", ou a tela ficava girando sem fim. -->
+<div class="container" id="screen-erroconexao" style="display:none">
+  <div class="card">
+    <div class="card-body" style="text-align:center;padding:40px 20px">
+      <div style="font-size:48px;margin-bottom:16px">📶</div>
+      <div style="font-size:18px;font-weight:700;color:#c0392b;margin-bottom:8px">Não conseguimos carregar seu pedido</div>
+      <div id="erro-conexao-detalhe" style="font-size:13px;color:#888;margin-bottom:18px;line-height:1.6">
+        Parece que a internet caiu no meio do caminho. O link está certo — é só tentar de novo.
+      </div>
+      <button onclick="location.reload()" style="background:linear-gradient(135deg,#003366,#0A4E8C);color:#fff;border:none;padding:13px 26px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 8px 20px rgba(0,51,102,.28)">🔄 Tentar de novo</button>
+      <div style="margin-top:18px;font-size:12px;color:#9FB0C2;line-height:1.6">
+        Se continuar assim, tente sair do Wi-Fi e usar os dados do celular (ou o contrário).
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- PEDIDO + ASSINATURA -->
 <div class="container" id="screen-pedido" style="display:none">
 
@@ -411,8 +429,21 @@ const firebaseConfig = {
   messagingSenderId: "802823831509",
   appId: "1:802823831509:web:b5e575d8d5b7b62d5dc75c"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+// Se o SDK do Firebase não carregar (bloqueador do iPhone, rede caindo, proxy),
+// "firebase" fica indefinido e o erro aqui em cima matava o script inteiro —
+// a tela ficava girando "Carregando pedido..." pra sempre, sem explicação.
+var db = null;
+var erroInit = '';
+try {
+  if (typeof firebase === 'undefined' || !firebase.initializeApp) {
+    throw new Error('SDK do Firebase não carregou');
+  }
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+} catch (e) {
+  erroInit = (e && e.message) ? e.message : String(e);
+  console.error('Falha ao iniciar o Firebase:', e);
+}
 
 // ── FIREBASE GESTÃO (Realtime Database) ──────────────────────────
 const gestaoConfig = {
@@ -424,9 +455,16 @@ const gestaoConfig = {
   messagingSenderId: "359027216116",
   appId: "1:359027216116:web:af8df148f57e7c3fb398a1"
 };
-const gestaoApp = firebase.initializeApp(gestaoConfig, 'gestao');
-const gestaoDb  = gestaoApp.database();
-const GESTAO_REF = gestaoDb.ref('dados');
+// Mesmo cuidado do app principal: a Gestão é acessória (só alimenta a comissão),
+// então uma falha aqui não pode derrubar a tela do pedido do cliente.
+var gestaoDb = null, GESTAO_REF = null;
+try {
+  if (db) {
+    var gestaoApp = firebase.initializeApp(gestaoConfig, 'gestao');
+    gestaoDb  = gestaoApp.database();
+    GESTAO_REF = gestaoDb.ref('dados');
+  }
+} catch (e) { console.error('Falha ao iniciar o Firebase da Gestão:', e); }
 
 const fmtBRL = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const fmtDate = iso => { if(!iso) return '—'; const [y,m,d]=iso.split('-'); return `${d}/${m}/${y}`; };
@@ -653,33 +691,36 @@ async function carregarPedido() {
   const pedidoId = params.get('id');
 
   if (!pedidoId) { showScreen('erro'); return; }
+  if (!db) { showErroConexao('Não foi possível conectar (' + erroInit + '). Se você usa bloqueador de anúncios ou de rastreamento, desative para este site e tente de novo.'); return; }
+
+  relogioCarga = setTimeout(() => { if (!jaCarregou) showErroConexao(); }, 25000);
 
   try {
-    // Carrega fotos dos produtos (removidas dos itens para reduzir tamanho no Firestore)
-    const idxSnap = await db.collection('acn').doc('produtos_index').get();
-    if (idxSnap.exists) {
-      const ids = idxSnap.data().ids || [];
-      const prodSnaps = await Promise.all(
-        ids.map(pid => db.collection('acn_produtos').doc(String(pid)).get())
-      );
-      prodSnaps.forEach(s => {
-        if (s.exists) {
-          const d = s.data();
-          if (d.id && d.foto)    prodFotos[String(d.id)]    = d.foto;
-          if (d.id && d.fotoDir) prodFotosDir[String(d.id)] = d.fotoDir;
-          if (d.id && d.cat)     prodCategorias[String(d.id)] = d.cat;
-        }
-      });
-    }
-
-    // Lê o pedido diretamente do doc individual (novo formato acn_pedidos/{id}).
+    // O pedido vem PRIMEIRO. Antes a página baixava o catálogo inteiro (todos os
+    // produtos, cada um com foto em base64 de ~150KB) só pra depois descobrir
+    // qual pedido mostrar — vários MB no celular do cliente antes de aparecer
+    // qualquer coisa. Sabendo o pedido primeiro, baixa só o que ele usa.
     const pedSnap = await db.collection('acn_pedidos').doc(String(pedidoId)).get();
     if (!pedSnap.exists) { showScreen('erro'); return; }
     const p = pedSnap.data();
     pedidoAtual = p;
 
-    // Carrega as fotos REAIS do projeto (acn_prod_fotos) de cada item, não a foto genérica do produto
     const prodIdsItens = [...new Set((p.items||[]).map(it => it.prodId).filter(Boolean))];
+
+    // Fotos/categoria do catálogo, só dos produtos deste pedido
+    const prodSnaps = await Promise.all(
+      prodIdsItens.map(pid => db.collection('acn_produtos').doc(String(pid)).get().catch(() => null))
+    );
+    prodSnaps.forEach(s => {
+      if (s && s.exists) {
+        const d = s.data();
+        if (d.id && d.foto)    prodFotos[String(d.id)]    = d.foto;
+        if (d.id && d.fotoDir) prodFotosDir[String(d.id)] = d.fotoDir;
+        if (d.id && d.cat)     prodCategorias[String(d.id)] = d.cat;
+      }
+    });
+
+    // Carrega as fotos REAIS do projeto (acn_prod_fotos) de cada item, não a foto genérica do produto
     const fotosProjetoSnaps = await Promise.all(prodIdsItens.map(pid => carregarFotosProjeto(pid)));
     prodIdsItens.forEach((pid, i) => { prodFotosProjeto[String(pid)] = fotosProjetoSnaps[i]; });
     // Itens com sentido ESQUERDA usam o projeto próprio do lado esquerdo (se existir)
@@ -687,19 +728,39 @@ async function carregarPedido() {
     const fotosDirSnaps = await Promise.all(prodIdsEsq.map(pid => carregarFotosProjetoDir(pid)));
     prodIdsEsq.forEach((pid, i) => { prodFotosProjetoDir[String(pid)] = fotosDirSnaps[i]; });
 
+    pararRelogioCarga();
     renderPedido(p);
     showScreen('pedido');
     resizeCanvas();
   } catch(e) {
     console.error(e);
-    showScreen('erro');
+    // Erro de rede não é "pedido não encontrado" — a mensagem certa evita o
+    // cliente achar que o link que o vendedor mandou está quebrado.
+    const msg = (e && e.message) ? e.message : String(e);
+    if (/offline|network|unavailable|timeout|deadline|transport|failed to get/i.test(msg)) showErroConexao();
+    else showScreen('erro');
   }
 }
 
 function showScreen(name) {
-  ['loading','erro','pedido','sucesso'].forEach(s => {
+  // Sair do "carregando" (pra qualquer tela) encerra o relógio — senão ele
+  // ainda dispararia depois e trocaria um erro já mostrado pelo de conexão.
+  if (name !== 'loading') pararRelogioCarga();
+  ['loading','erro','erroconexao','pedido','sucesso'].forEach(s => {
     document.getElementById('screen-'+s).style.display = s===name ? 'block' : 'none';
   });
+}
+
+// Garante que a tela NUNCA fique girando pra sempre.
+var jaCarregou = false;
+var relogioCarga = null;
+function pararRelogioCarga() {
+  jaCarregou = true;
+  if (relogioCarga) { clearTimeout(relogioCarga); relogioCarga = null; }
+}
+function showErroConexao(detalhe) {
+  if (detalhe) document.getElementById('erro-conexao-detalhe').textContent = detalhe;
+  showScreen('erroconexao');
 }
 
 function renderPedido(p) {
@@ -876,6 +937,7 @@ function clearCanvas() {
 const MS_GESTAO = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 async function enviarParaGestao(pedido, nomeAssinante) {
+  if (!GESTAO_REF) { console.warn('Gestão indisponível, pedido não enviado para lá.'); return; }
   try {
     const snap = await GESTAO_REF.once('value');
     const dados = snap.val() || {};
