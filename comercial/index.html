@@ -2795,6 +2795,11 @@ async function saveProduto() {
       let codigoFinal = codigoExistente;
       // Códigos antigos de combinação (ex: FOG01-180) ganham um código limpo da categoria ao editar
       if (String(codigoFinal || '').includes('-')) codigoFinal = proximoCodigoLivrePorCat(cat);
+      // Trocou de categoria: o código tem que acompanhar. Um produto cadastrado
+      // sem querer em Bancadas (BAN03) e depois movido pra Fogões continuava
+      // BAN03 pra sempre. Se o código já é o da categoria certa, não mexe —
+      // assim editar nome/preço nunca troca o código à toa.
+      else if (!codigoCombinaComCategoria(codigoFinal, cat)) codigoFinal = proximoCodigoLivrePorCat(cat);
       produtos[idx] = { ...produtos[idx], nome, dim, preco:precoFinal, cat, obs, codigo:codigoFinal, filtros, tipoProd, componentes,
         ehVariacao: false, paiId: null, combo: null, comboPadrao: null, eixo: null,
         modelo3d: modelo3dUrl || produtos[idx].modelo3d || null, espelhavel: ehEspelhavel,
@@ -2943,6 +2948,18 @@ function proximoCodigoLivrePorCat(cat) {
   let c = 1;
   while (usados.has(c)) c++;
   return prefix + String(c).padStart(2, '0');
+}
+
+// O código pertence à categoria: "FOG03" só faz sentido em Fogões. Serve pra
+// detectar, ao editar um produto, que ele mudou de categoria e está com o
+// código da categoria antiga. Categoria sem prefixo usa código numérico.
+function codigoCombinaComCategoria(codigo, cat) {
+  const cod = String(codigo || '').trim();
+  if (!cod) return false;
+  const prefix = cat ? (catPrefixes[cat] || '') : '';
+  if (!prefix) return /^\d+$/.test(cod);
+  const pfxEsc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('^' + pfxEsc + '\\d+$', 'i').test(cod);
 }
 
 // Revisão geral: reatribui TODOS os códigos por categoria, em sequência, usando o
