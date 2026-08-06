@@ -1101,7 +1101,9 @@ async function confirmarPedido() {
           num: String(pedidoAtual.num).padStart(3, '0'),
           assinadoPor: nome,
           emailCliente: pedidoAtual.email || email || '',
-          total: pedidoAtual.subtotal || 0
+          // subtotal é ANTES do desconto: o aviso de pedido assinado chegava
+          // com o valor cheio sempre que havia desconto.
+          total: (pedidoAtual.total != null ? pedidoAtual.total : pedidoAtual.subtotal) || 0
         })
       }).catch(() => {});
     }

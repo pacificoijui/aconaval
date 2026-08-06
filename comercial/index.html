@@ -4043,6 +4043,23 @@ function calcDesconto(sub, pctId, valId) {
   if (pct > 0) return Math.min(sub, sub * pct / 100);
   return Math.min(sub, val);
 }
+// Só o VALOR do desconto é gravado (não a forma como foi digitado). Para
+// devolvê-lo aos campos, quando ele corresponde a uma % redonda (ou "meia"
+// porcentagem) usa o campo de %, senão usa o de valor fixo. Mesma regra em
+// todo lugar que restaura desconto: editar orçamento e converter em pedido.
+function preencherCamposDesconto(desconto, subtotal, avistaVal, pctId, valId, vistaId) {
+  const pctEl = document.getElementById(pctId);
+  const valEl = document.getElementById(valId);
+  if (pctEl) pctEl.value = '';
+  if (valEl) valEl.value = '';
+  if (desconto && subtotal) {
+    const pct = Math.round(desconto / subtotal * 1000) / 10;
+    if (Number.isInteger(pct) || pct === Math.round(pct * 2) / 2) { if (pctEl) pctEl.value = pct; }
+    else { if (valEl) valEl.value = Number(desconto).toFixed(2); }
+  }
+  const vistaEl = document.getElementById(vistaId);
+  if (vistaEl) vistaEl.value = avistaVal || '';
+}
 function updatePreview() {
   const sub = items.reduce((s,i)=>s+(parseFloat(i.preco)||0),0);
   const desc = calcDesconto(sub, 'inp-desc-pct', 'inp-desc-val');
@@ -4073,14 +4090,7 @@ function editarOrcamento(id) {
     items = JSON.parse(JSON.stringify(o.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
     items.forEach(item => { if(!item.searchText) item.searchText = item.desc.split('\n')[0]; inferirLadoDaDesc(item); });
     // Restaurar desconto
-    const dpEl=document.getElementById('inp-desc-pct'); if(dpEl) dpEl.value='';
-    const dvEl=document.getElementById('inp-desc-val'); if(dvEl) dvEl.value='';
-    if(o.desconto && o.subtotal) {
-      const pct = Math.round(o.desconto/o.subtotal*1000)/10;
-      if(Number.isInteger(pct) || pct===Math.round(pct*2)/2) { if(dpEl) dpEl.value=pct; }
-      else { if(dvEl) dvEl.value=o.desconto.toFixed(2); }
-    }
-    const vfEl = document.getElementById('inp-vista-final'); if(vfEl) vfEl.value = o.avistaVal || '';
+    preencherCamposDesconto(o.desconto, o.subtotal, o.avistaVal, 'inp-desc-pct', 'inp-desc-val', 'inp-vista-final');
     setVendedorSelect('oc-vendedor', o.vendedorId, o.vendedorNome);
     renderItems(); updatePreview();
     const title = document.querySelector('#page-novo .sec-title');
@@ -4780,6 +4790,9 @@ function copiarTexto(txt) {
 // ── SOLICITAÇÕES ──────────────────────────────────────────────────
 let solicitacoes = [];
 let solicitacaoAtual = null;
+// Solicitação que está sendo transformada em pedido agora. Só vira 'convertido'
+// depois que o pedido é gravado de fato (ver gerarPedido).
+let solicitacaoConvertendoId = null;
 
 async function carregarSolicitacoes() {
   try {
@@ -4967,7 +4980,13 @@ async function converterEmPedido() {
           lado:   it.lado   || null,
         }));
         itemsPedido.forEach(inferirLadoDaDesc);
-        origemLabel = orc.items.length + ' item(ns) do Orçamento #' + String(orc.num).padStart(3,'0');
+        // O desconto negociado no orçamento tem que vir junto. Sem isto o
+        // pedido nascia pelo valor cheio: o cliente aprovava um orçamento com
+        // desconto e recebia um pedido mais caro.
+        preencherCamposDesconto(orc.desconto, orc.subtotal, orc.avistaVal,
+                                'pd-inp-desc-pct', 'pd-inp-desc-val', 'pd-inp-vista-final');
+        origemLabel = orc.items.length + ' item(ns) do Orçamento #' + String(orc.num).padStart(3,'0')
+          + (orc.desconto > 0 ? ' · desconto de ' + fmtBRL(orc.desconto) + ' mantido' : '');
       }
     }
 
@@ -4981,8 +5000,10 @@ async function converterEmPedido() {
       container.parentNode.insertBefore(banner, container);
     }
 
-    // Marca solicitação como convertida
-    marcarSolicConvertida(s.id);
+    // Só marca como convertida quando o pedido for realmente gerado. Antes era
+    // marcada aqui, ao abrir o formulário: se o atendente desistisse ou fechasse
+    // a página, a solicitação sumia da fila de pendentes sem existir pedido.
+    solicitacaoConvertendoId = s.id;
   }, 100);
 }
 
@@ -5351,6 +5372,7 @@ async function refreshPedidosFresh() {
 
 async function resetPedidoForm(){
   pedidoEditandoId = null;
+  solicitacaoConvertendoId = null;   // formulário novo não herda a solicitação anterior
   ['pd-nome','pd-doc','pd-fone','pd-rua','pd-num','pd-bairro','pd-cep','pd-cidade','pd-estado','pd-obs','pd-email','pd-vendedor'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   resetPrazoEntrega();
   const hoje=new Date(); document.getElementById('pd-data').value=hoje.toISOString().split('T')[0];
@@ -5716,6 +5738,12 @@ async function gerarPedido() {
     if (btnGerar) { btnGerar.disabled = true; btnGerar.textContent = '💾 Salvando…'; }
     await savePedidos().catch(e => console.warn('Save:', e));
     if (btnGerar) { btnGerar.disabled = false; btnGerar.textContent = txtBtnOriginal; }
+    // Agora sim: o pedido existe, a solicitação de origem pode sair da fila
+    if (solicitacaoConvertendoId) {
+      const _sid = solicitacaoConvertendoId;
+      solicitacaoConvertendoId = null;
+      marcarSolicConvertida(_sid).catch(e => console.warn('Solicitação:', e));
+    }
     const copiado = await copyPromise;
     setPS(copiado
       ? '✅ Pedido salvo! Link de assinatura copiado — é só colar no WhatsApp do cliente.'
