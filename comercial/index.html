@@ -2147,9 +2147,11 @@ async function comprimirGlbSelecionado(file) {
       const pct = ((1 - novoSize/origSize) * 100).toFixed(0);
       document.getElementById('glb-filename').textContent = `${nome}  (${(novoSize/1048576).toFixed(1)} MB)`;
       setStatus('#e8f5ee', '#156d3a',
-        `✅ Comprimido: ${fmtBytesGlb(origSize)} → <b>${fmtBytesGlb(novoSize)}</b> (−${pct}%) · ${res.imgsCompressed} textura(s)`);
+        `✅ Comprimido: ${fmtBytesGlb(origSize)} → <b>${fmtBytesGlb(novoSize)}</b> (−${pct}%) · ${res.imgsCompressed} textura(s)` +
+        (res.imgsTransparentes ? `<br><span style="font-size:11px">🛡️ ${res.imgsTransparentes} textura(s) com transparência preservada(s) sem comprimir — comprimir deixaria essa parte preta no 3D</span>` : ''));
     } else {
-      setStatus('#fff8e8', '#9a6b00', `ℹ️ Já estava otimizado — enviando o original (${fmtBytesGlb(origSize)})`);
+      setStatus('#fff8e8', '#9a6b00', `ℹ️ Já estava otimizado — enviando o original (${fmtBytesGlb(origSize)})` +
+        (res.imgsTransparentes ? `<br><span style="font-size:11px">🛡️ ${res.imgsTransparentes} textura(s) com transparência preservada(s) — comprimir deixaria essa parte preta no 3D</span>` : ''));
     }
   } catch (err) {
     console.warn('Compressão GLB falhou, usando original:', err);
@@ -2173,7 +2175,7 @@ async function compressGLB(bytes, onProg) {
   if (!json.images || json.images.length === 0) return { bytes, imgsCompressed:0, imgsSkipped:0 };
   const bvDatas = json.bufferViews.map(bv =>
     bin.slice(bv.byteOffset||0, (bv.byteOffset||0)+bv.byteLength));
-  let imgsCompressed = 0, imgsSkipped = 0;
+  let imgsCompressed = 0, imgsSkipped = 0, imgsTransparentes = 0;
   const total = json.images.length;
   for (let i = 0; i < total; i++) {
     const img = json.images[i];
@@ -2186,7 +2188,12 @@ async function compressGLB(bytes, onProg) {
         json.images[i].mimeType = 'image/jpeg';
         imgsCompressed++;
       } else imgsSkipped++;
-    } catch(e) { imgsSkipped++; }
+    } catch(e) {
+      // Textura com transparência fica como está: convertê-la pra JPEG pintaria
+      // de PRETO tudo que era transparente (vidro, tela da grelha, recortes).
+      if (e && e.semTransparencia === false) imgsTransparentes++;
+      imgsSkipped++;
+    }
   }
   const newOffsets = []; let cursor = 0;
   for (const d of bvDatas) { newOffsets.push(cursor); cursor += d.length; cursor += (4 - (d.length % 4)) % 4; }
@@ -2214,7 +2221,17 @@ async function compressGLB(bytes, onProg) {
   ov.setUint32(bStart,   newBin.length+bPad, true);
   ov.setUint32(bStart+4, 0x004E4942, true);
   out.set(newBin, bStart+8);
-  return { bytes: out, imgsCompressed, imgsSkipped };
+  return { bytes: out, imgsCompressed, imgsSkipped, imgsTransparentes };
+}
+
+// Uma textura com transparência (vidro, tela da grelha, recortes do desenho) NÃO
+// pode virar JPEG: o JPEG não tem canal alpha, e o que era transparente sai
+// PRETO SÓLIDO — era isso que deixava pedaços do modelo pretos no site mesmo
+// estando certos no SketchUp. Detecta qualquer pixel não-opaco.
+function temTransparencia(ctx, w, h) {
+  const d = ctx.getImageData(0, 0, w, h).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return true;
+  return false;
 }
 
 function jpegCompress(imgData, quality) {
@@ -2227,7 +2244,13 @@ function jpegCompress(imgData, quality) {
       const cv  = document.createElement('canvas');
       cv.width  = img.naturalWidth;
       cv.height = img.naturalHeight;
-      cv.getContext('2d').drawImage(img, 0, 0);
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      if (temTransparencia(ctx, cv.width, cv.height)) {
+        const e = new Error('Textura com transparência — mantida como está');
+        e.semTransparencia = false;   // marca pra contabilizar no resumo
+        rej(e); return;
+      }
       cv.toBlob(b => {
         if (!b) { rej(new Error('Canvas toBlob falhou')); return; }
         b.arrayBuffer().then(ab => res(new Uint8Array(ab)));
