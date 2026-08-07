@@ -716,6 +716,7 @@ tbody tr:hover{background:#fafbfc}
       <div id="prod-acoes-extra" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #f0f2f5;padding-top:12px;margin-top:4px;margin-bottom:12px">
         <span style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.4px;width:100%">Outras ações para este produto</span>
         <button class="btn btn-ghost btn-sm" style="color:#185FA5" onclick="copiarLinkProduto(document.getElementById('edit-prod-id').value, this)" title="Copiar link do produto para enviar ao cliente">🔗 Copiar Link</button>
+        <button class="btn btn-ghost btn-sm" style="color:#7a5a0c;border-color:#efc24e" onclick="trocarCodigoUI(document.getElementById('edit-prod-id').value)" title="Definir manualmente o código deste produto, ou trocá-lo com o de outro">🔢 Trocar código</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProduto(document.getElementById('edit-prod-id').value)">🗑️ Excluir Produto</button>
       </div>
       <div style="display:flex;gap:8px">
@@ -2983,6 +2984,56 @@ function revisarCodigos() {
     if (String(p.codigo) !== String(novoCod)) { p.codigo = novoCod; mudou = true; }
   });
   return mudou;
+}
+
+// Troca manual do código de um produto. Se o código digitado já pertence a
+// outro produto, os dois trocam de código entre si em vez de dar erro — é o
+// caso comum de "quero que este seja o FOG01 e o que está no FOG01 vá pro FOG05".
+async function trocarCodigoUI(id) {
+  const p = produtos.find(x => String(x.id) === String(id));
+  if (!p) return;
+  const prefix = p.cat ? (catPrefixes[p.cat] || '') : '';
+  const digitado = prompt(
+    'Código de "' + (p.nome || 'produto') + '"\n' +
+    'Categoria: ' + (p.cat || 'sem categoria') +
+      (prefix ? '  (prefixo ' + prefix + ')' : '  (sem prefixo — código numérico)') + '\n\n' +
+    'Se o código escolhido já for de outro produto, os dois trocam entre si.\n\n' +
+    'Novo código:',
+    String(p.codigo || '')
+  );
+  if (digitado === null) return;                       // cancelou
+  const novo = String(digitado).trim();
+  if (!novo || novo.toUpperCase() === String(p.codigo || '').toUpperCase()) return;
+
+  if (!codigoCombinaComCategoria(novo, p.cat)) {
+    alert('⚠️ "' + novo + '" não serve para a categoria ' + (p.cat || 'sem categoria') + '.\n\n' +
+      (prefix ? 'Use ' + prefix + ' seguido de números — ex: ' + prefix + '05.'
+              : 'Esta categoria não tem prefixo cadastrado, então o código é só numérico — ex: 7.'));
+    return;
+  }
+
+  const novoFmt = prefix ? novo.toUpperCase() : novo;
+  const dono = produtos.find(x => String(x.id) !== String(id) &&
+    String(x.codigo || '').toUpperCase() === novoFmt.toUpperCase());
+  const codAntigo = p.codigo;
+
+  if (dono) {
+    let aviso = 'O código ' + novoFmt + ' já é de "' + (dono.nome || 'outro produto') + '".\n\n' +
+      'Os dois vão trocar de código:\n' +
+      '• ' + (p.nome || 'este') + ':  ' + codAntigo + '  →  ' + novoFmt + '\n' +
+      '• ' + (dono.nome || 'o outro') + ':  ' + novoFmt + '  →  ' + codAntigo;
+    if (dono.cat !== p.cat) {
+      aviso += '\n\n⚠ Atenção: "' + (dono.nome || 'o outro') + '" é da categoria ' + (dono.cat || 'sem categoria') +
+        ', então vai ficar com um código de outra categoria.';
+    }
+    if (!confirm(aviso + '\n\nConfirmar a troca?')) return;
+    dono.codigo = codAntigo;
+  }
+
+  p.codigo = novoFmt;
+  await save();
+  renderProdutos();
+  alert(dono ? '✅ Códigos trocados entre os dois produtos.' : '✅ Código alterado para ' + novoFmt + '.');
 }
 
 // Botão: roda a revisão geral dos códigos e salva.
