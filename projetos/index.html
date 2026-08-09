@@ -448,7 +448,9 @@ scene.add(gizmo);
 
 let model=null, baseScale=1, espelhado=false;
 
-// escala do produto respeitando o espelhamento (X negativo = invertido esq/dir)
+// escala do produto respeitando o espelhamento (X negativo = invertido esq/dir).
+// `model` é o pivô centrado na peça (ver loadGLB), então o X negativo espelha
+// no lugar em vez de jogar a peça pro outro lado da cena.
 function aplicarEscalaModelo(v){
   if(!model) return;
   const s=baseScale*v;
@@ -472,8 +474,8 @@ function loadGLB(url, revoke){
   loader.load(url, gltf=>{
     if(revoke) URL.revokeObjectURL(url);
     if(model){ scene.remove(model); tcontrols.detach(); }
-    model = gltf.scene;
-    model.traverse(o=>{
+    const conteudo = gltf.scene;
+    conteudo.traverse(o=>{
       if(o.isMesh){
         o.castShadow=true; o.receiveShadow=true;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -491,10 +493,19 @@ function loadGLB(url, revoke){
         }
       }
     });
-    // normaliza: centraliza em XZ, base no Y=0, cabe em ~1.5 de altura
-    const box=new THREE.Box3().setFromObject(model); const size=new THREE.Vector3(); box.getSize(size);
+    // Normaliza: centraliza em XZ, base no Y=0, cabe em ~1.5 de altura.
+    // O conteúdo é centrado DENTRO de um pivô, e é o pivô que leva escala e
+    // posição. Antes o mesmo objeto carregava o deslocamento de centralização
+    // E a escala: espelhar (escala X negativa) refletia em torno da origem do
+    // arquivo — que nos GLB do SketchUp fica longe da peça — e a peça saía
+    // voando pra fora da tela. Com o pivô, a origem É o centro da peça, então
+    // espelhar inverte no lugar, sem sair do lugar.
+    const box=new THREE.Box3().setFromObject(conteudo); const size=new THREE.Vector3(); box.getSize(size);
     const c=new THREE.Vector3(); box.getCenter(c);
-    model.position.x -= c.x; model.position.z -= c.z; model.position.y -= box.min.y;
+    conteudo.position.x -= c.x; conteudo.position.z -= c.z; conteudo.position.y -= box.min.y;
+
+    model = new THREE.Group();
+    model.add(conteudo);
     baseScale = 1.5 / (size.y || 1);
     espelhado=false; $('mirrorBtn').classList.remove('on');   // modelo novo entra no sentido original
     model.scale.setScalar(baseScale);
