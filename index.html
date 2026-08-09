@@ -717,6 +717,7 @@ let produtos = [];
 let filtroAtivo = 'Todos';
 let filtrosDefLoja = {};    // definição dos filtros por categoria (vem do admin): { "Fogão": [{nome, opcoes:[]}] }
 let catPortfolioAlias = {}; // categoria sem portfólio próprio aponta pro de outra (vem do admin)
+let categoriasOrdem = [];   // ordem das categorias definida no admin (arrastar em "Categorias e Filtros")
 let subFiltros = {};        // seleção atual do cliente: { "Posição": "Ilha" }
 
 // Escapa HTML em textos vindos do banco. Nomes/medidas com aspas — ex: 60\" (polegadas) —
@@ -741,6 +742,7 @@ function lerCacheLoja() {
     if (!c || !Array.isArray(c.produtos) || (Date.now() - (c.t || 0)) > CACHE_TTL) return null;
     filtrosDefLoja = normalizarFiltrosDef(c.filtrosDef || {});
     catPortfolioAlias = c.catPortfolioAlias || {};
+    categoriasOrdem = c.categoriasOrdem || [];
     return c.produtos;
   } catch(e) { return null; }
 }
@@ -755,7 +757,7 @@ function normalizarFiltrosDef(def) {
 }
 function salvarCacheLoja() {
   // fotos em base64 podem estourar a cota do sessionStorage — se estourar, só não cacheia
-  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), produtos, filtrosDef: filtrosDefLoja, catPortfolioAlias })); } catch(e) {}
+  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), produtos, filtrosDef: filtrosDefLoja, catPortfolioAlias, categoriasOrdem })); } catch(e) {}
   // cache LEVE compartilhado com a página de produto (menu de categorias / relacionados)
   try {
     const lite = produtos.map(p => ({ id:p.id, nome:p.nome, cat:p.cat, preco:p.preco, foto:p.foto, codigo:p.codigo, dim:p.dim, ehVariacao:!!p.ehVariacao }));
@@ -798,6 +800,7 @@ async function loadProdutos() {
     if (cfgSnap && cfgSnap.exists) {
       filtrosDefLoja = normalizarFiltrosDef(cfgSnap.data().filtrosDef || {});
       catPortfolioAlias = cfgSnap.data().catPortfolioAlias || {};
+      categoriasOrdem = cfgSnap.data().categorias || [];
     }
     if (idxSnap.exists) {
       const ids = idxSnap.data().ids || [];
@@ -851,7 +854,14 @@ function atualizarWhatsAppLoja(){
 }
 
 function renderCategories() {
-  const cats = ['Todos', ...new Set(produtos.filter(p=>!isCano(p)).map(p => p.cat).filter(Boolean))];
+  const presentes = new Set(produtos.filter(p=>!isCano(p)).map(p => p.cat).filter(Boolean));
+  // Ordem definida no admin (arrastar em "Categorias e Filtros"), só com as
+  // categorias que realmente têm produto. Categoria nova que ainda não foi
+  // organizada lá (rara — cadastro direto no produto) entra no fim, na ordem
+  // em que apareceu, pra não sumir da loja.
+  const ordenadas = categoriasOrdem.filter(c => presentes.has(c));
+  const extras = [...presentes].filter(c => !categoriasOrdem.includes(c));
+  const cats = ['Todos', ...ordenadas, ...extras];
   const row = document.getElementById('cat-row');
   // encodeURIComponent blinda o onclick contra aspas/apóstrofos no nome da categoria
   row.innerHTML = cats.map(c => `

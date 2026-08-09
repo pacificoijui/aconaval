@@ -151,6 +151,9 @@ tr.dragging{opacity:.4}
 .eixo-opc-chip.reo-dragging,.eixo-row.reo-dragging{opacity:.4}
 .eixo-opc-chip.reo-over{outline:2px solid #185FA5;outline-offset:1px}
 .eixo-row.reo-over{background:#EEF5FF;border-radius:6px;box-shadow:inset 0 0 0 2px #B5D4F4}
+.cat-card.reo-dragging{opacity:.4}
+.cat-card.reo-over{box-shadow:inset 0 0 0 2px #185FA5}
+.cat-card-header .reo-h{font-size:16px;padding-right:2px}
 .table-wrap{border-radius:8px;overflow:hidden;border:1px solid #e0e4e8}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{background:#f5f7fa;color:#666;font-weight:600;text-align:left;padding:10px 12px;border-bottom:1px solid #e0e4e8;font-size:11px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
@@ -563,7 +566,7 @@ tbody tr:hover{background:#fafbfc}
   <!-- PAINEL CATEGORIAS E FILTROS -->
   <div class="card slide-panel filtros-panel" id="filtros-panel">
     <div style="font-size:13px;font-weight:700;color:#003366;margin-bottom:4px">🗂️ Categorias e Filtros</div>
-    <div style="font-size:12px;color:#888;margin-bottom:14px">Gerencie as categorias do catálogo e os filtros de cada uma. Cada filtro tem seus valores (ex: Posição → Ilha, Parede). Ao cadastrar um produto, você marca os valores que valem para ele — e a loja usa isso pro cliente filtrar até achar o produto.</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px">Gerencie as categorias do catálogo e os filtros de cada uma. Cada filtro tem seus valores (ex: Posição → Ilha, Parede). Ao cadastrar um produto, você marca os valores que valem para ele — e a loja usa isso pro cliente filtrar até achar o produto.<br>Arraste pelo <b>⠿</b> no topo de cada categoria pra reordenar — essa é a ordem que aparece nos chips da página inicial do site.</div>
     <div id="filtros-def-list"></div>
     <!-- Adicionar nova categoria -->
     <div style="border-top:1px solid #f0f2f5;padding-top:12px;margin-top:4px">
@@ -3195,8 +3198,11 @@ function reoMove(e){
   const over = t && t.closest ? t.closest('[data-reo="'+_reo.kind+'"]') : null;
   document.querySelectorAll('.reo-over').forEach(x=>x.classList.remove('reo-over'));
   _reo.target = null;
-  if(over && over !== _reo.chip && +over.dataset.ci === _reo.ci &&
-     (_reo.kind === 'filtro' || +over.dataset.fi === _reo.fi)){
+  // 'cat' reordena as categorias entre si — não precisa (nem faz sentido) exigir
+  // o mesmo ci, já que o ci AQUI é justamente a posição que está mudando.
+  if(over && over !== _reo.chip &&
+     (_reo.kind === 'cat' || (+over.dataset.ci === _reo.ci &&
+       (_reo.kind === 'filtro' || +over.dataset.fi === _reo.fi)))){
     over.classList.add('reo-over');
     _reo.target = over;
   }
@@ -3209,20 +3215,28 @@ function reoEnd(){
   document.querySelectorAll('.reo-dragging').forEach(x=>x.classList.remove('reo-dragging'));
   document.querySelectorAll('.reo-over').forEach(x=>x.classList.remove('reo-over'));
   if(!st || !st.target) return;
-  const cat = categorias[st.ci];
-  if(cat === undefined) return;
-  if(st.kind === 'val'){
-    const f = (filtrosDef[cat]||[])[st.fi];
-    if(!f || !f.opcoes) return;
-    const to = +st.target.dataset.vi, from = st.vi;
-    if(from == null || isNaN(to) || from === to) return;
-    const [m] = f.opcoes.splice(from,1); f.opcoes.splice(to,0,m);
+  if(st.kind === 'cat'){
+    // Essa é a ordem que a loja usa nos chips de categoria da página inicial —
+    // ver renderCategories() em index.html.
+    const to = +st.target.dataset.ci, from = st.ci;
+    if(isNaN(to) || from === to || !categorias[from]) return;
+    const [m] = categorias.splice(from,1); categorias.splice(to,0,m);
   } else {
-    const arr = filtrosDef[cat];
-    if(!arr) return;
-    const to = +st.target.dataset.fi, from = st.fi;
-    if(from == null || isNaN(to) || from === to) return;
-    const [m] = arr.splice(from,1); arr.splice(to,0,m);
+    const cat = categorias[st.ci];
+    if(cat === undefined) return;
+    if(st.kind === 'val'){
+      const f = (filtrosDef[cat]||[])[st.fi];
+      if(!f || !f.opcoes) return;
+      const to = +st.target.dataset.vi, from = st.vi;
+      if(from == null || isNaN(to) || from === to) return;
+      const [m] = f.opcoes.splice(from,1); f.opcoes.splice(to,0,m);
+    } else {
+      const arr = filtrosDef[cat];
+      if(!arr) return;
+      const to = +st.target.dataset.fi, from = st.fi;
+      if(from == null || isNaN(to) || from === to) return;
+      const [m] = arr.splice(from,1); arr.splice(to,0,m);
+    }
   }
   renderFiltrosDefPanel();
   renderFiltrosExtrasForm();
@@ -3242,9 +3256,10 @@ function renderFiltrosDefPanel(){
       const slug = slugify(cat);
       const catSlugWorker = slugCatWorker(cat);
       const fotoCat = catFotos[catSlugWorker] || '';
-      return `<div class="cat-card">
+      return `<div class="cat-card" data-reo="cat" data-ci="${catIdx}">
         <div class="cat-card-header">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="reo-h" onpointerdown="reoStart(event)" title="Arraste para reordenar a categoria — essa ordem é a que aparece na página inicial do site">⠿</span>
             <label class="cat-foto-thumb" title="Foto de capa desta categoria — aparece na prévia do link de WhatsApp (ex: 'clique aqui pra ver os fogões')"
               style="width:28px;height:28px;border-radius:6px;border:1px solid #cdd5e0;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;flex-shrink:0;background:#f5f5f5">
               ${fotoCat ? `<img src="${fotoCat}" style="width:100%;height:100%;object-fit:cover;display:block">` : `<span style="font-size:14px">🖼️</span>`}
