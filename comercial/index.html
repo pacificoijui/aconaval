@@ -716,6 +716,21 @@ tbody tr:hover{background:#fafbfc}
           <input type="file" id="inp-foto-projeto-dir" accept="image/*" multiple style="display:none" onchange="onFotoProjetoDirChange(event)"/>
         </div>
       </div>
+      <!-- VARIAÇÕES: versões do MESMO produto (ex: 2 bocas / 3 bocas). Não
+           aparecem na loja — o cliente escolhe dentro da página do produto. -->
+      <div id="prod-variacoes-box" style="border-top:1px solid #f0f2f5;padding-top:12px;margin-top:4px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.4px">🔀 Variações deste produto</span>
+          <button class="btn btn-ghost btn-sm" type="button" style="color:#6B3FA0;border-color:#D6C6EE" onclick="addVariacao()">+ Adicionar variação</button>
+        </div>
+        <div style="font-size:11.5px;color:#9aa7b5;margin-bottom:10px;line-height:1.5">
+          Mesmo produto em outra versão (ex: 3 bocas em vez de 2). Ganha um subcódigo próprio
+          (<b id="var-exemplo-cod">FOG03.01</b>), <b>não aparece na loja</b> — o cliente escolhe aqui dentro da página do produto.
+          Deixe o preço em branco pra usar o mesmo do produto principal.
+        </div>
+        <div id="variacoes-list"></div>
+      </div>
+
       <div id="prod-acoes-extra" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #f0f2f5;padding-top:12px;margin-top:4px;margin-bottom:12px">
         <span style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.4px;width:100%">Outras ações para este produto</span>
         <button class="btn btn-ghost btn-sm" style="color:#185FA5" onclick="copiarLinkProduto(document.getElementById('edit-prod-id').value, this)" title="Copiar link do produto para enviar ao cliente">🔗 Copiar Link</button>
@@ -2098,6 +2113,8 @@ function clearProdForm() {
   renderClienteThumbs();
   currentVideosProduto = [];
   renderVideosProdutoLista();
+  currentVariacoes = [];
+  renderVariacoes();
   { const vinp = document.getElementById('inp-video-prod'); if (vinp) vinp.value = ''; }
   currentGlbFile = null;
   currentModelo3dUrl = null;
@@ -2369,6 +2386,60 @@ function removeFoto() { currentFotoBase64 = null; resetFotoUI(); }
 // Cada foto fica em documento separado: acn_prod_fotos/{prodId}_f{i}
 // Isso evita o limite de 1MB por documento do Firestore.
 
+// Fotos das variações em documentos próprios — o documento do produto guarda
+// só os dados leves. Apaga o que sobrou de variações removidas, senão ficam
+// órfãs ocupando espaço no Firestore.
+async function salvarFotosVariacoes(prodId, variacoes) {
+  if (!db || !prodId) return;
+  const vivos = new Set();
+  const batch = db.batch();
+  for (const v of (variacoes || [])) {
+    if (!(v.nome || '').trim()) continue;
+    const base = String(prodId) + '_v' + v.seq;
+    vivos.add(base);
+    if (v.foto) batch.set(db.collection('acn_prod_fotos').doc(base), { foto: v.foto });
+    else batch.delete(db.collection('acn_prod_fotos').doc(base));
+    (v.fotosprojeto || []).forEach((f, i) => {
+      vivos.add(base + '_f' + i);
+      batch.set(db.collection('acn_prod_fotos').doc(base + '_f' + i), { foto: f });
+    });
+  }
+  await batch.commit().catch(e => console.warn('fotos das variações:', e));
+
+  // Limpa sobras: varre os docs de variação deste produto e apaga o que não está mais em uso
+  try {
+    const antigos = (produtos.find(p => String(p.id) === String(prodId)) || {}).variacoes || [];
+    const lixo = db.batch(); let temLixo = false;
+    for (const v of antigos) {
+      const base = String(prodId) + '_v' + v.seq;
+      if (!vivos.has(base)) { lixo.delete(db.collection('acn_prod_fotos').doc(base)); temLixo = true; }
+      for (let i = 0; i < (v.projCount || 0); i++) {
+        if (!vivos.has(base + '_f' + i)) { lixo.delete(db.collection('acn_prod_fotos').doc(base + '_f' + i)); temLixo = true; }
+      }
+    }
+    if (temLixo) await lixo.commit();
+  } catch(e) { console.warn('limpeza das variações:', e); }
+}
+
+// Lê de volta as fotos de uma variação (foto principal + projeto)
+async function carregarFotosVariacao(prodId, v) {
+  const base = String(prodId) + '_v' + v.seq;
+  const out = { foto: null, fotosprojeto: [] };
+  if (!db) return out;
+  try {
+    if (v.temFoto) {
+      const s = await db.collection('acn_prod_fotos').doc(base).get();
+      if (s.exists) out.foto = s.data().foto || null;
+    }
+    const snaps = await Promise.all(
+      Array.from({ length: v.projCount || 0 }, (_, i) =>
+        db.collection('acn_prod_fotos').doc(base + '_f' + i).get().catch(() => null))
+    );
+    out.fotosprojeto = snaps.map(s => s && s.exists ? s.data().foto : null).filter(Boolean);
+  } catch(e) { console.warn('ler fotos da variação:', e); }
+  return out;
+}
+
 async function salvarFotosProjeto(prodId, fotos) {
   if (!db || !prodId) return;
   const arr = fotos || [];
@@ -2495,6 +2566,157 @@ function removeFotoCliente(idx) {
 // produto específico. Guarda só o ID do YouTube (11 caracteres), então cabe
 // tranquilo dentro do documento do produto.
 let currentVideosProduto = [];
+
+// ── VARIAÇÕES DO PRODUTO ──────────────────────────────────────────
+// Versões do MESMO produto (ex: 2 bocas / 3 bocas), com foto, 3D, medidas e
+// preço próprios. Ficam DENTRO do produto (não são produtos separados), então
+// não aparecem na loja e a migração antiga de variações não as alcança.
+//
+// Os dados leves (nome, medidas, preço, link do 3D) vão no documento do
+// produto. As FOTOS ficam em documentos separados, senão o produto estoura o
+// limite de 1MB do Firestore:
+//   acn_prod_fotos/{prodId}_v{seq}        → { foto }  (foto principal)
+//   acn_prod_fotos/{prodId}_v{seq}_f{i}   → { foto }  (fotos de projeto)
+//
+// `seq` é fixo por variação e nunca reaproveitado: o subcódigo FOG03.01
+// continua sendo .01 mesmo que outra variação seja apagada — assim orçamento
+// antigo não passa a apontar pra peça errada.
+let currentVariacoes = [];
+
+function subcodigoVar(codigoPai, seq) {
+  return String(codigoPai || '') + '.' + String(seq).padStart(2, '0');
+}
+
+function addVariacao() {
+  const usados = currentVariacoes.map(v => v.seq || 0);
+  const seq = (usados.length ? Math.max(...usados) : 0) + 1;
+  currentVariacoes.push({ seq, nome:'', dim:'', preco:null, modelo3d:null,
+                          foto:null, fotosprojeto:[], glbFile:null });
+  renderVariacoes();
+}
+
+function removeVariacao(seq) {
+  const v = currentVariacoes.find(x => x.seq === seq);
+  const nome = (v && v.nome) ? '"' + v.nome + '"' : 'esta variação';
+  showConfirm('Remover variação', 'Remover ' + nome + '? As fotos e o 3D dela também são apagados.', () => {
+    currentVariacoes = currentVariacoes.filter(x => x.seq !== seq);
+    renderVariacoes();
+  });
+}
+
+function setVarCampo(seq, campo, valor) {
+  const v = currentVariacoes.find(x => x.seq === seq); if (!v) return;
+  if (campo === 'preco') v.preco = valor === '' ? null : (parseFloat(valor) || 0);
+  else v[campo] = valor;
+  if (campo === 'nome') renderVariacoes();   // atualiza o título do card
+}
+
+function renderVariacoes() {
+  const wrap = document.getElementById('variacoes-list'); if (!wrap) return;
+  const codPai = (produtos.find(p => String(p.id) === String(document.getElementById('edit-prod-id').value)) || {}).codigo || 'COD';
+  const ex = document.getElementById('var-exemplo-cod'); if (ex) ex.textContent = subcodigoVar(codPai, 1);
+
+  if (!currentVariacoes.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:#bbb;padding:8px 0">Nenhuma variação. O produto é vendido só na versão principal.</div>';
+    return;
+  }
+  wrap.innerHTML = currentVariacoes.map(v => `
+    <div style="background:#FAF8FE;border:1px solid #E4DAF5;border-radius:9px;padding:11px 12px;margin-bottom:9px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px">
+        <span style="background:#F1ECFB;border:1px solid #D6C6EE;color:#6B3FA0;font-size:11px;font-weight:800;padding:2px 9px;border-radius:10px;letter-spacing:.4px">${escHtml(subcodigoVar(codPai, v.seq))}</span>
+        <input value="${escHtml(v.nome||'')}" placeholder="Nome da variação (ex: 3 bocas)" maxlength="60"
+          style="flex:1;min-width:150px;font-size:13px;padding:5px 9px;border:1px solid #cdd5e0;border-radius:6px"
+          oninput="setVarCampoSemRedesenhar(${v.seq},'nome',this.value)"/>
+        <button class="btn btn-danger btn-sm" type="button" style="padding:2px 9px;font-size:11px" onclick="removeVariacao(${v.seq})">✕</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px">
+        <input value="${escHtml(v.dim||'')}" placeholder="Medidas (ex: 130x60)" maxlength="60"
+          style="flex:1;min-width:130px;font-size:13px;padding:5px 9px;border:1px solid #cdd5e0;border-radius:6px"
+          oninput="setVarCampoSemRedesenhar(${v.seq},'dim',this.value)"/>
+        <input value="${v.preco == null ? '' : v.preco}" type="number" step="0.01" placeholder="Preço (vazio = mesmo do principal)"
+          style="flex:1;min-width:150px;font-size:13px;padding:5px 9px;border:1px solid #cdd5e0;border-radius:6px"
+          oninput="setVarCampoSemRedesenhar(${v.seq},'preco',this.value)"/>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#888;margin-bottom:4px">FOTO PRINCIPAL</div>
+          <label style="display:block;width:74px;height:74px;border:1px dashed #cdd5e0;border-radius:8px;overflow:hidden;cursor:pointer;background:#fff;display:flex;align-items:center;justify-content:center">
+            ${v.foto ? `<img src="${v.foto}" style="width:100%;height:100%;object-fit:cover">` : '<span style="font-size:20px;color:#ccc">📷</span>'}
+            <input type="file" accept="image/*" style="display:none" onchange="onVarFotoChange(${v.seq}, this)">
+          </label>
+          ${v.foto ? `<button class="btn btn-ghost btn-sm" type="button" style="margin-top:4px;padding:1px 7px;font-size:10.5px;color:#a32d2d;border-color:#f0c5c5" onclick="removeVarFoto(${v.seq})">✕ foto</button>` : ''}
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div style="font-size:11px;font-weight:700;color:#888;margin-bottom:4px">FOTOS DE PROJETO (${(v.fotosprojeto||[]).length})</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:5px">
+            ${(v.fotosprojeto||[]).map((f,i)=>`<span style="position:relative;display:inline-block">
+              <img src="${f}" style="width:46px;height:46px;object-fit:cover;border-radius:5px;border:1px solid #e0e4e8">
+              <button type="button" onclick="removeVarProjeto(${v.seq},${i})" style="position:absolute;top:-5px;right:-5px;width:17px;height:17px;border-radius:50%;border:none;background:#c0392b;color:#fff;font-size:10px;line-height:1;cursor:pointer">✕</button>
+            </span>`).join('')}
+          </div>
+          <label class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 9px;cursor:pointer;display:inline-block">
+            + Fotos de projeto
+            <input type="file" accept="image/*" multiple style="display:none" onchange="onVarProjetoChange(${v.seq}, this)">
+          </label>
+        </div>
+        <div style="min-width:150px">
+          <div style="font-size:11px;font-weight:700;color:#888;margin-bottom:4px">MODELO 3D (.glb)</div>
+          ${v.modelo3d || v.glbFile
+            ? `<div style="font-size:11.5px;color:#185FA5;font-weight:600;margin-bottom:4px">🧊 ${v.glbFile ? escHtml(v.glbFile.name) : 'modelo salvo'}</div>
+               <button class="btn btn-ghost btn-sm" type="button" style="padding:1px 7px;font-size:10.5px;color:#a32d2d;border-color:#f0c5c5" onclick="removeVarGlb(${v.seq})">✕ remover 3D</button>`
+            : `<label class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 9px;cursor:pointer;display:inline-block">
+                 + Arquivo .glb
+                 <input type="file" accept=".glb,.gltf" style="display:none" onchange="onVarGlbChange(${v.seq}, this)">
+               </label>`}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// Não redesenha a lista a cada tecla (o input perderia o foco)
+function setVarCampoSemRedesenhar(seq, campo, valor) {
+  const v = currentVariacoes.find(x => x.seq === seq); if (!v) return;
+  v[campo] = (campo === 'preco') ? (valor === '' ? null : (parseFloat(valor) || 0)) : valor;
+}
+
+async function onVarFotoChange(seq, inputEl) {
+  const file = inputEl.files[0]; if (!file) return;
+  const v = currentVariacoes.find(x => x.seq === seq); if (!v) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    v.foto = await comprimirFoto(ev.target.result);
+    renderVariacoes();
+  };
+  reader.readAsDataURL(file);
+  inputEl.value = '';
+}
+function removeVarFoto(seq) {
+  const v = currentVariacoes.find(x => x.seq === seq); if (v) { v.foto = null; renderVariacoes(); }
+}
+async function onVarProjetoChange(seq, inputEl) {
+  const v = currentVariacoes.find(x => x.seq === seq); if (!v) return;
+  const files = [...inputEl.files]; inputEl.value = '';
+  for (const file of files) {
+    const b64 = await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file); });
+    v.fotosprojeto = v.fotosprojeto || [];
+    v.fotosprojeto.push(await comprimirFotoProjeto(b64));
+  }
+  renderVariacoes();
+}
+function removeVarProjeto(seq, i) {
+  const v = currentVariacoes.find(x => x.seq === seq); if (!v) return;
+  v.fotosprojeto.splice(i, 1); renderVariacoes();
+}
+function onVarGlbChange(seq, inputEl) {
+  const file = inputEl.files[0]; if (!file) return;
+  const v = currentVariacoes.find(x => x.seq === seq); if (!v) return;
+  v.glbFile = file; inputEl.value = '';
+  renderVariacoes();
+}
+function removeVarGlb(seq) {
+  const v = currentVariacoes.find(x => x.seq === seq);
+  if (v) { v.glbFile = null; v.modelo3d = null; renderVariacoes(); }
+}
 
 function addVideoProduto() {
   const inp = document.getElementById('inp-video-prod');
@@ -2792,6 +3014,30 @@ async function saveProduto() {
     if (btnSave) { btnSave.disabled = false; btnSave.innerHTML = '💾 Salvar Produto'; }
   }
 
+  // Modelos 3D das variações — mesmo caminho do principal, um arquivo por variação
+  const btnSaveVar = document.querySelector('#prod-form-panel button[onclick="saveProduto()"]');
+  for (const v of currentVariacoes) {
+    if (!v.glbFile) continue;
+    if (btnSaveVar) { btnSaveVar.disabled = true; btnSaveVar.textContent = '⏳ Enviando 3D da variação…'; }
+    try {
+      v.modelo3d = await uploadGlbToStorage(prodId + '_v' + v.seq, v.glbFile);
+      v.glbFile = null;
+    } catch(e) {
+      if (btnSaveVar) { btnSaveVar.disabled = false; btnSaveVar.innerHTML = '💾 Salvar Produto'; }
+      alert('Erro ao enviar o modelo 3D da variação "' + (v.nome || v.seq) + '": ' + e.message);
+      return;
+    }
+  }
+  if (btnSaveVar) { btnSaveVar.disabled = false; btnSaveVar.innerHTML = '💾 Salvar Produto'; }
+
+  // Só os dados leves vão no documento do produto; as fotos vão em documentos
+  // separados (salvarFotosVariacoes) pra não estourar o limite de 1MB.
+  const variacoesLeves = currentVariacoes
+    .filter(v => (v.nome || '').trim())
+    .map(v => ({ seq: v.seq, nome: (v.nome||'').trim(), dim: (v.dim||'').trim(),
+                 preco: (v.preco == null ? null : v.preco), modelo3d: v.modelo3d || null,
+                 temFoto: !!v.foto, projCount: (v.fotosprojeto||[]).length }));
+
   if (eid) {
     const idx = produtos.findIndex(p => p.id == eid);
     if (idx >= 0) {
@@ -2807,7 +3053,7 @@ async function saveProduto() {
       produtos[idx] = { ...produtos[idx], nome, dim, preco:precoFinal, cat, obs, codigo:codigoFinal, filtros, tipoProd, componentes,
         ehVariacao: false, paiId: null, combo: null, comboPadrao: null, eixo: null,
         modelo3d: modelo3dUrl || produtos[idx].modelo3d || null, espelhavel: ehEspelhavel,
-        videos: [...currentVideosProduto] };
+        videos: [...currentVideosProduto], variacoes: variacoesLeves };
       if (currentFotoBase64 !== null) produtos[idx].foto = currentFotoBase64;
       produtos[idx].fotosprojeto = [...currentFotosProjetoBase64];
       if (currentFotoDirBase64 !== null) produtos[idx].fotoDir = currentFotoDirBase64;
@@ -2819,8 +3065,9 @@ async function saveProduto() {
       ehVariacao: false, paiId: null, combo: null, comboPadrao: null, eixo: null,
       foto: currentFotoBase64 || '', fotosprojeto: [...currentFotosProjetoBase64], modelo3d: modelo3dUrl || null, espelhavel: ehEspelhavel,
       fotoDir: currentFotoDirBase64 || null, fotosprojetoDir: [...currentFotosProjetoDirBase64],
-      videos: [...currentVideosProduto] });
+      videos: [...currentVideosProduto], variacoes: variacoesLeves });
   }
+  await salvarFotosVariacoes(prodId, currentVariacoes);
   save(); renderProdutos(); cancelProdForm();
 }
 function editProduto(id) {
@@ -2857,6 +3104,15 @@ function editProduto(id) {
   });
   currentVideosProduto = Array.isArray(p.videos) ? [...p.videos] : [];
   renderVideosProdutoLista();
+  // Variações: os dados leves vêm no produto; as fotos são buscadas à parte
+  currentVariacoes = (Array.isArray(p.variacoes) ? p.variacoes : [])
+    .map(v => ({ ...v, foto:null, fotosprojeto:[], glbFile:null }));
+  renderVariacoes();
+  currentVariacoes.forEach(async v => {
+    const f = await carregarFotosVariacao(p.id, v);
+    v.foto = f.foto; v.fotosprojeto = f.fotosprojeto;
+    renderVariacoes();
+  });
   // Restaura modelo 3D
   currentGlbFile = null;
   if (p.modelo3d) {
