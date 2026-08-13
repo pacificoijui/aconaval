@@ -733,7 +733,6 @@ tbody tr:hover{background:#fafbfc}
 
       <div id="prod-acoes-extra" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #f0f2f5;padding-top:12px;margin-top:4px;margin-bottom:12px">
         <span style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.4px;width:100%">Outras ações para este produto</span>
-        <button class="btn btn-ghost btn-sm" style="color:#185FA5" onclick="copiarLinkProduto(document.getElementById('edit-prod-id').value, this)" title="Copiar link do produto para enviar ao cliente">🔗 Copiar Link</button>
         <button class="btn btn-ghost btn-sm" style="color:#7a5a0c;border-color:#efc24e" onclick="trocarCodigoUI(document.getElementById('edit-prod-id').value)" title="Definir manualmente o código deste produto, ou trocá-lo com o de outro">🔢 Trocar código</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProduto(document.getElementById('edit-prod-id').value)">🗑️ Excluir Produto</button>
       </div>
@@ -3139,12 +3138,23 @@ function editProduto(id) {
 // de transferência. Usa a MESMA regra de preço já usada em produto.html:
 // preco = valor cheio (cartão), preco/12 = parcela sem juros, preco*0.9 =
 // à vista com 10% de desconto.
+// Um botão só: copia o link do produto (Workers) EM CIMA e o orçamento
+// formatado (valores e condições) EMBAIXO — antes eram dois botões
+// separados ("🔗 Link" e "💬 WhatsApp"); juntou tudo aqui pra evitar dois
+// cliques e duas colagens na conversa do cliente.
 function copiarOrcamentoWhatsApp(id, btnEl) {
   const prod = produtos.find(p => p.id == id);
   if (!prod) return;
   const preco = Number(prod.preco) || 0;
   const fmt = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const texto = `*${prod.nome}*
+
+  const link = 'https://loja.contato-aconaval.workers.dev/?id=' + id;
+  let blocoLink = link + '\n\nClica na foto para abrir mais detalhes e verificar os valores.';
+  if (prod.modelo3d) {
+    blocoLink += '\n\n*Clique na foto e veja o projeto em 3d interativo, você pode mover, dar zoom, girar*';
+  }
+
+  const blocoOrcamento = `*${prod.nome}*
 
 💳 Em 12x sem juros de *R$ ${fmt(preco / 12)}* por mês no cartão
 
@@ -3154,27 +3164,11 @@ function copiarOrcamentoWhatsApp(id, btnEl) {
 
 Acompanha o kit de instalação. 3 metros de canos galvanizados, círculo de acabamento de teto e chapéu chinês.`;
 
+  const texto = blocoLink + '\n\n' + blocoOrcamento;
+
   const textoOriginal = btnEl ? btnEl.innerHTML : '';
   function avisar(ok) {
     if (!btnEl) { if (!ok) alert(texto); return; }
-    btnEl.innerHTML = ok ? '✅ Copiado!' : '⚠️ Copie manualmente';
-    setTimeout(() => { btnEl.innerHTML = textoOriginal; }, 1600);
-  }
-  copiarTexto(texto).then(ok => {
-    if (ok) avisar(true);
-    else { prompt('Copie o texto abaixo (Ctrl+C):', texto); avisar(false); }
-  });
-}
-function copiarLinkProduto(id, btnEl) {
-  const link = 'https://loja.contato-aconaval.workers.dev/?id=' + id;
-  const prod = produtos.find(p => p.id == id);
-  let texto = link + '\n\nClica na foto para abrir mais detalhes e verificar os valores.';
-  if (prod && prod.modelo3d) {
-    texto += '\n\n*Clique na foto e veja o projeto em 3d interativo, você pode mover, dar zoom, girar*';
-  }
-  const textoOriginal = btnEl ? btnEl.innerHTML : '';
-  function avisar(ok) {
-    if (!btnEl) { if(!ok) alert(texto); return; }
     btnEl.innerHTML = ok ? '✅ Copiado!' : '⚠️ Copie manualmente';
     setTimeout(() => { btnEl.innerHTML = textoOriginal; }, 1600);
   }
@@ -3971,8 +3965,7 @@ function renderProdutos() {
         <td data-label="Valor" style="text-align:right"><span class="price-tag">${fmtBRL(p.preco)}</span></td>
         <td data-cell="acoes"><div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="editProduto(${p.id})">✏️ Editar</button>
-          <button class="btn btn-ghost btn-sm" style="color:#25D366" onclick="copiarOrcamentoWhatsApp(${p.id}, this)" title="Copiar orçamento formatado (valores, condições e link) para colar no WhatsApp">💬 WhatsApp</button>
-          <button class="btn btn-ghost btn-sm" style="color:#185FA5" onclick="copiarLinkProduto(${p.id}, this)" title="Copiar link do produto para enviar ao cliente">🔗 Link</button>
+          <button class="btn btn-ghost btn-sm" style="color:#25D366" onclick="copiarOrcamentoWhatsApp(${p.id}, this)" title="Copiar link do produto + orçamento formatado (valores e condições) para colar no WhatsApp">💬 WhatsApp</button>
         </div></td>
       </tr>`;}).join('');
   }
