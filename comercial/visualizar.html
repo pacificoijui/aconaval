@@ -686,6 +686,12 @@ function renderOrcamento(o) {
 
   // Itens — flex rows, sem tabela
   itemsFotosProjetoAtual = (o.items || []).map(function(item) {
+    // Projeto específico deste item (trocado só para este orçamento) tem
+    // prioridade sobre o projeto padrão do produto no catálogo.
+    if (item.projetoCustom) {
+      var fc = itemFotoProjetoCustom[String(item.id)];
+      return fc ? [fc] : [];
+    }
     if (!item.prodId) return [];
     // Projeto do lado ESQUERDO tem prioridade quando existe.
     if (item.lado === 'Esquerda') {
@@ -968,6 +974,17 @@ async function carregarFotosProjetoDir(prodId) {
   } catch (e) { return []; }
 }
 
+// Foto de projeto específica de um item (acn_item_projetos/{itemId}) — vendedor
+// pode trocar o projeto só para este orçamento, sem mexer no produto do catálogo.
+var itemFotoProjetoCustom = {};
+async function carregarFotoProjetoItem(itemId) {
+  if (!itemId) return '';
+  try {
+    var snap = await db.collection('acn_item_projetos').doc(String(itemId)).get();
+    return snap.exists ? (snap.data().foto || '') : '';
+  } catch (e) { return ''; }
+}
+
 (async function() {
   var params = new URLSearchParams(location.search);
   var id = params.get('id');
@@ -1014,6 +1031,12 @@ async function carregarFotosProjetoDir(prodId) {
     var prodIdsEsq = Array.from(new Set((orc.items || []).filter(function(it){ return it.lado === 'Esquerda' && it.prodId; }).map(function(it){ return it.prodId; })));
     var fotosDirSnaps = await Promise.all(prodIdsEsq.map(function(pid){ return carregarFotosProjetoDir(pid); }));
     prodIdsEsq.forEach(function(pid, i) { prodFotosProjetoDir[String(pid)] = fotosDirSnaps[i]; });
+
+    // Itens com projeto específico (trocado só para este orçamento) têm prioridade
+    // sobre o projeto padrão do produto.
+    var itensCustom = (orc.items || []).filter(function(it){ return it.projetoCustom && it.id; });
+    var customSnaps = await Promise.all(itensCustom.map(function(it){ return carregarFotoProjetoItem(it.id); }));
+    itensCustom.forEach(function(it, i) { itemFotoProjetoCustom[String(it.id)] = customSnaps[i]; });
 
     renderOrcamento(orc);
   } catch(e) {

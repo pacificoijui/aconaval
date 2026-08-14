@@ -1526,7 +1526,7 @@ async function save() {
     const orcSemFoto = orcamentos.map(function(orc) {
       return Object.assign({}, orc, {
         items: (orc.items || []).map(function(item) {
-          var i = Object.assign({}, item); delete i.foto; return i;
+          var i = Object.assign({}, item); delete i.foto; delete i.fotoProjetoCustom; return i;
         })
       });
     });
@@ -3970,6 +3970,26 @@ function ladoChipsHtml(item, fn, idKey) {
       <button type="button" onclick="${fn}(${idKey},'Esquerda')" style="padding:4px 12px;border-radius:14px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${item.lado==='Esquerda'?'#185FA5':'#d5dbe1'};background:${item.lado==='Esquerda'?'#E6F1FB':'#fff'};color:${item.lado==='Esquerda'?'#185FA5':'#666'}">◧ Esquerda</button>
     </div>`;
 }
+// HTML do toggle "Projeto específico para este item" + upload da foto (orçamento e pedido).
+// fnToggle/fnFoto/fnRemove = nomes das funções de clique; idKey = item.id (orçamento) ou idx (pedido).
+function projetoCustomHtml(item, idKey, fnToggle, fnFoto, fnRemove) {
+  const inputId = 'projfoto-' + fnToggle + '-' + idKey;
+  return `
+    <div style="grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;background:${item.projetoCustom?'#FFF7E6':'#fafbfc'};border:1px dashed ${item.projetoCustom?'#E0B050':'#e0e4e8'};border-radius:6px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:${item.projetoCustom?'#8a6200':'#666'};cursor:pointer">
+        <input type="checkbox" ${item.projetoCustom?'checked':''} onchange="${fnToggle}(${idKey})"/>
+        📐 Projeto específico para este item
+      </label>
+      ${item.projetoCustom ? `
+        <input type="file" accept="image/*" id="${inputId}" style="display:none" onchange="${fnFoto}(${idKey}, this)"/>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('${inputId}').click()" style="padding:3px 10px;font-size:11.5px">📷 ${item.fotoProjetoCustom?'Trocar foto':'Enviar foto'}</button>
+        ${item.fotoProjetoCustom
+          ? `<img src="${item.fotoProjetoCustom}" style="width:36px;height:36px;object-fit:contain;border:1px solid #ddd;border-radius:4px;background:#fff"/>
+             <button type="button" class="btn btn-ghost btn-sm" onclick="${fnRemove}(${idKey})" style="padding:3px 8px;font-size:11.5px;color:#c0392b">remover foto</button>`
+          : `<span style="font-size:11px;color:#A32D2D">⚠️ envie a foto do projeto específico</span>`}
+      ` : ''}
+    </div>`;
+}
 
 function addItem() { items.push({ id: Date.now(), prodId: '', desc: '', preco: 0 }); renderItems(); }
 function removeItem(id) {
@@ -4013,6 +4033,7 @@ function renderItems() {
         <button class="btn btn-danger btn-sm" onclick="removeItem(${item.id})" ${items.length<=1?'disabled':''} style="padding:6px 9px">✕</button>
       </div>
       ${itemPrecisaLado(item) ? ladoChipsHtml(item, 'setLadoOrc', item.id) : ''}
+      ${item.prodId ? projetoCustomHtml(item, item.id, 'toggleProjetoCustom', 'onProjetoCustomFotoChange', 'removeProjetoCustomFoto') : ''}
     </div>`).join('');
 }
 function setLadoOrc(id, lado) {
@@ -4111,6 +4132,33 @@ document.addEventListener('click', e => {
   });
 });
 function onDescChange(id, val)  { const item = items.find(i=>i.id==id); if(item){item.desc=val;updatePreview();} }
+function toggleProjetoCustom(id) {
+  const item = items.find(i => i.id == id); if (!item) return;
+  item.projetoCustom = !item.projetoCustom;
+  if (!item.projetoCustom) {
+    item.fotoProjetoCustom = '';
+    salvarFotoProjetoItem(id, '').catch(()=>{});
+  }
+  renderItems(); updatePreview();
+}
+async function onProjetoCustomFotoChange(id, input) {
+  const file = input.files && input.files[0]; if (!file) return;
+  if (file.size > 3 * 1024 * 1024) { alert('Foto muito grande. Use uma imagem até 3MB.'); input.value = ''; return; }
+  const reader = new FileReader();
+  const base64 = await new Promise(res => { reader.onload = ev => res(ev.target.result); reader.readAsDataURL(file); });
+  const compressed = await comprimirFotoProjeto(base64);
+  const item = items.find(i => i.id == id); if (!item) return;
+  item.fotoProjetoCustom = compressed;
+  input.value = '';
+  renderItems(); updatePreview();
+  salvarFotoProjetoItem(id, compressed).catch(e => console.error('Erro ao salvar foto de projeto do item:', e));
+}
+function removeProjetoCustomFoto(id) {
+  const item = items.find(i => i.id == id); if (!item) return;
+  item.fotoProjetoCustom = '';
+  renderItems(); updatePreview();
+  salvarFotoProjetoItem(id, '').catch(()=>{});
+}
 function onPrecoChange(id, val) { const item = items.find(i=>i.id==id); if(item){item.preco=parseFloat(val)||0;updatePreview();} }
 function calcDesconto(sub, pctId, valId) {
   const pct = parseFloat(document.getElementById(pctId)?.value) || 0;
@@ -4154,7 +4202,7 @@ function editarOrcamento(id) {
   const o = orcamentos.find(x => x.id == id); if (!o) return;
   orcamentoEditandoId = id;
   showPage('novo');
-  setTimeout(() => {
+  setTimeout(async () => {
     document.getElementById('oc-cliente').value = o.cliente || '';
     document.getElementById('oc-fone').value    = o.fone    || '';
     document.getElementById('oc-obs').value     = o.obs     || '';
@@ -4165,6 +4213,10 @@ function editarOrcamento(id) {
     // Preenche itens
     items = JSON.parse(JSON.stringify(o.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
     items.forEach(item => { if(!item.searchText) item.searchText = item.desc.split('\n')[0]; inferirLadoDaDesc(item); });
+    // Recupera a foto do projeto específico de cada item que tiver (acn_item_projetos/{id})
+    await Promise.all(items.filter(i => i.projetoCustom).map(async it => {
+      it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || '';
+    }));
     // Restaurar desconto
     preencherCamposDesconto(o.desconto, o.subtotal, o.avistaVal, 'inp-desc-pct', 'inp-desc-val', 'inp-vista-final');
     setVendedorSelect('oc-vendedor', o.vendedorId, o.vendedorNome);
@@ -4190,6 +4242,7 @@ async function gerarOrcamento() {
   // do Firestore — fotos ficam na coleção acn_produtos (referenciadas por prodId)
   const itemsSemFoto = JSON.parse(JSON.stringify(validItems)).map(item => {
     delete item.foto;
+    delete item.fotoProjetoCustom;
     return item;
   });
 
@@ -4287,29 +4340,59 @@ function fotoDoItemLado(item) {
   if (!pr) return item.foto || '';
   return (item.lado === 'Esquerda' && pr.fotoDir) ? pr.fotoDir : (pr.foto || item.foto || '');
 }
-// Fotos do projeto respeitando o sentido (Esquerda usa o conjunto próprio, se houver)
+// Fotos do projeto respeitando o sentido (Esquerda usa o conjunto próprio, se houver).
+// Se o item tiver uma foto de projeto específica (projetoCustom), ela tem prioridade
+// sobre a foto do produto no catálogo — vale só para este item/pedido.
 function fotosProjetoDoItemLado(item) {
+  if (item.projetoCustom) return item.fotoProjetoCustom ? [item.fotoProjetoCustom] : [];
   const pr = prodDoItem(item);
   if (!pr) return [];
   if (item.lado === 'Esquerda' && Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length) return pr.fotosprojetoDir;
   return pr.fotosprojeto || [];
 }
+// ── FOTO DE PROJETO ESPECÍFICA DE UM ITEM (orçamento/pedido) ─────────────
+// Permite trocar a foto de projeto só para este item, sem alterar o produto
+// no catálogo (ex.: cliente pediu uma altura ou especificação diferente —
+// vale só para este orçamento/pedido). Fica em documento próprio
+// (acn_item_projetos/{itemId}), pelo mesmo motivo das fotos de produto: não
+// estourar o limite de 1MB do documento do orçamento/pedido.
+async function salvarFotoProjetoItem(itemId, foto) {
+  if (!db || !itemId) return;
+  if (foto) await db.collection('acn_item_projetos').doc(String(itemId)).set({ foto });
+  else await db.collection('acn_item_projetos').doc(String(itemId)).delete();
+}
+async function carregarFotoProjetoItem(itemId) {
+  if (!db || !itemId) return '';
+  try {
+    const snap = await db.collection('acn_item_projetos').doc(String(itemId)).get();
+    return snap.exists ? (snap.data().foto || '') : '';
+  } catch(e) { return ''; }
+}
 // Antes de renderizar/gerar PDF, garante que o projeto do lado ESQUERDO
-// (acn_prod_fotos/{id}_fd{i}) esteja carregado para os itens com sentido Esquerda
+// (acn_prod_fotos/{id}_fd{i}) esteja carregado para os itens com sentido Esquerda,
+// e que a foto de projeto específica (acn_item_projetos/{id}) esteja carregada
+// para os itens com projetoCustom.
 async function prepararLadosDoc(doc) {
   const itensEsq = (doc && doc.items ? doc.items : []).filter(i => i.lado === 'Esquerda' && i.prodId);
-  await Promise.all(itensEsq.map(async it => {
-    const pr = prodDoItem(it);
-    // Bug fix: antes, um array vazio já cacheado (`pr.fotosprojetoDir === []`) era
-    // tratado como "já carregado" e nunca mais buscava de novo — se a primeira
-    // tentativa acontecesse antes das fotos existirem (ou desse vazio por qualquer
-    // motivo), o projeto ficava escondido pro resto da sessão, mesmo depois de
-    // subir as fotos no produto. Agora só pula a busca quando já tem fotos de
-    // verdade em cache (array não-vazio).
-    if (!pr || (Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length)) return;
-    try { pr.fotosprojetoDir = await carregarFotosProjetoDir(pr.id) || []; }
-    catch(e) { pr.fotosprojetoDir = []; }
-  }));
+  const itensCustom = (doc && doc.items ? doc.items : []).filter(i => i.projetoCustom && !i.fotoProjetoCustom);
+  await Promise.all([
+    ...itensEsq.map(async it => {
+      const pr = prodDoItem(it);
+      // Bug fix: antes, um array vazio já cacheado (`pr.fotosprojetoDir === []`) era
+      // tratado como "já carregado" e nunca mais buscava de novo — se a primeira
+      // tentativa acontecesse antes das fotos existirem (ou desse vazio por qualquer
+      // motivo), o projeto ficava escondido pro resto da sessão, mesmo depois de
+      // subir as fotos no produto. Agora só pula a busca quando já tem fotos de
+      // verdade em cache (array não-vazio).
+      if (!pr || (Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length)) return;
+      try { pr.fotosprojetoDir = await carregarFotosProjetoDir(pr.id) || []; }
+      catch(e) { pr.fotosprojetoDir = []; }
+    }),
+    ...itensCustom.map(async it => {
+      try { it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || ''; }
+      catch(e) { it.fotoProjetoCustom = ''; }
+    }),
+  ]);
 }
 
 async function showOrcamento(id) {
@@ -4391,7 +4474,7 @@ function getHTMLOrc(o) {
 
   // Fotos do projeto (buscadas do catálogo via prodId)
   const projetoItens = o.items.reduce((acc, item) => {
-    const fotos = (item.prodId ? fotosProjetoDoItemLado(item) : []).filter(Boolean);
+    const fotos = ((item.prodId || item.projetoCustom) ? fotosProjetoDoItemLado(item) : []).filter(Boolean);
     if (fotos.length) acc.push({ nome: item.desc ? item.desc.split('\n')[0] : '', fotos });
     return acc;
   }, []);
@@ -4994,7 +5077,7 @@ async function converterEmPedido() {
   await resetPedidoForm();
 
   // Preenche o formulário de pedido com os dados da solicitação
-  setTimeout(() => {
+  setTimeout(async () => {
     document.getElementById('pd-nome').value   = s.nome||'';
     document.getElementById('pd-doc').value    = s.cpf||'';
     document.getElementById('pd-fone').value   = s.fone||'';
@@ -5048,12 +5131,16 @@ async function converterEmPedido() {
       const orc = orcamentos.find(x => String(x.id) === String(s.orcId));
       if (orc && orc.items && orc.items.length) {
         itemsPedido = orc.items.map(it => ({
-          id:     Date.now() + Math.random(),
+          // Preserva o id do item do orçamento (em vez de gerar um novo) — é a
+          // chave usada para achar a foto de projeto específica salva em
+          // acn_item_projetos, então precisa continuar igual no pedido gerado.
+          id:     it.id != null ? it.id : (Date.now() + Math.random()),
           prodId: it.prodId || '',
           desc:   it.desc   || '',
           preco:  it.preco  || 0,
           foto:   it.foto   || '',
           lado:   it.lado   || null,
+          projetoCustom: it.projetoCustom || false,
         }));
         itemsPedido.forEach(inferirLadoDaDesc);
         // O desconto negociado no orçamento tem que vir junto. Sem isto o
@@ -5067,6 +5154,11 @@ async function converterEmPedido() {
     }
 
     if (origemLabel) {
+      // Recupera a foto do projeto específico de cada item que tiver, pra já
+      // sair correto no pedido gerado (acn_item_projetos/{id}).
+      await Promise.all(itemsPedido.filter(i => i.projetoCustom).map(async it => {
+        it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || '';
+      }));
       renderItemsPedido();
       updatePreviewPd();
       const container = document.getElementById('pd-items-container');
@@ -5255,6 +5347,7 @@ function renderItemsPedido() {
         <button class="btn btn-danger btn-sm" onclick="removeItemPd(${idx})" ${itemsPedido.length<=1?'disabled':''} style="padding:6px 9px">✕</button>
       </div>
       ${itemPrecisaLado(item) ? ladoChipsHtml(item, 'setLadoPd', idx) : ''}
+      ${item.prodId ? projetoCustomHtml(item, idx, 'toggleProjetoCustomPd', 'onProjetoCustomFotoChangePd', 'removeProjetoCustomFotoPd') : ''}
     </div>`).join('');
 }
 function setLadoPd(idx, lado) {
@@ -5333,6 +5426,33 @@ function selectProdPd(idx, prodId) {
   updatePreviewPd();
 }
 function onDescChangePd(idx,val){if(itemsPedido[idx]){itemsPedido[idx].desc=val;updatePreviewPd();}}
+function toggleProjetoCustomPd(idx) {
+  const item = itemsPedido[idx]; if (!item) return;
+  item.projetoCustom = !item.projetoCustom;
+  if (!item.projetoCustom) {
+    item.fotoProjetoCustom = '';
+    salvarFotoProjetoItem(item.id, '').catch(()=>{});
+  }
+  renderItemsPedido(); updatePreviewPd();
+}
+async function onProjetoCustomFotoChangePd(idx, input) {
+  const file = input.files && input.files[0]; if (!file) return;
+  if (file.size > 3 * 1024 * 1024) { alert('Foto muito grande. Use uma imagem até 3MB.'); input.value = ''; return; }
+  const reader = new FileReader();
+  const base64 = await new Promise(res => { reader.onload = ev => res(ev.target.result); reader.readAsDataURL(file); });
+  const compressed = await comprimirFotoProjeto(base64);
+  const item = itemsPedido[idx]; if (!item) return;
+  item.fotoProjetoCustom = compressed;
+  input.value = '';
+  renderItemsPedido(); updatePreviewPd();
+  salvarFotoProjetoItem(item.id, compressed).catch(e => console.error('Erro ao salvar foto de projeto do item:', e));
+}
+function removeProjetoCustomFotoPd(idx) {
+  const item = itemsPedido[idx]; if (!item) return;
+  item.fotoProjetoCustom = '';
+  renderItemsPedido(); updatePreviewPd();
+  salvarFotoProjetoItem(item.id, '').catch(()=>{});
+}
 function onPrecoChangePd(idx,val){if(itemsPedido[idx]){itemsPedido[idx].preco=parseFloat(val)||0;updatePreviewPd();}}
 function updatePreviewPd(){
   const sub=itemsPedido.reduce((s,i)=>s+(parseFloat(i.preco)||0),0);
@@ -5648,7 +5768,7 @@ function editarPedido(id) {
   const p = pedidos.find(x => x.id == id); if (!p) return;
   pedidoEditandoId = id;
   showPage('novo-pedido');
-  setTimeout(() => {
+  setTimeout(async () => {
     // Preenche todos os campos com os dados do pedido
     document.getElementById('pd-nome').value   = p.nome   || '';
     document.getElementById('pd-doc').value    = p.cpf    || '';
@@ -5683,6 +5803,10 @@ function editarPedido(id) {
     // Preenche os itens
     itemsPedido = JSON.parse(JSON.stringify(p.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
     itemsPedido.forEach(item => { if(!item.searchText) item.searchText = item.desc.split('\n')[0]; inferirLadoDaDesc(item); });
+    // Recupera a foto do projeto específico de cada item que tiver (acn_item_projetos/{id})
+    await Promise.all(itemsPedido.filter(i => i.projetoCustom).map(async it => {
+      it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || '';
+    }));
     renderItemsPedido();
     updatePreviewPd();
     // Muda botão para "Salvar Alterações"
@@ -5847,7 +5971,7 @@ async function savePedidos() {
     for (let i = 0; i < pedidos.length; i += BATCH_SIZE) {
       const batch = db.batch();
       pedidos.slice(i, i + BATCH_SIZE).forEach(p => {
-        const doc = { ...p, items: (p.items||[]).map(it=>{const x={...it};delete x.foto;return x;}) };
+        const doc = { ...p, items: (p.items||[]).map(it=>{const x={...it};delete x.foto;delete x.fotoProjetoCustom;return x;}) };
         batch.set(db.collection('acn_pedidos').doc(String(p.id)), doc);
       });
       await batch.commit();
@@ -6089,7 +6213,7 @@ function getHTMLPed(p) {
 
   // Fotos do projeto (buscadas do catálogo via prodId)
   const projetoItensPed = p.items.reduce((acc, item) => {
-    const fotos = (item.prodId ? fotosProjetoDoItemLado(item) : []).filter(Boolean);
+    const fotos = ((item.prodId || item.projetoCustom) ? fotosProjetoDoItemLado(item) : []).filter(Boolean);
     if (fotos.length) acc.push({ nome: item.desc ? item.desc.split('\n')[0] : '', fotos });
     return acc;
   }, []);

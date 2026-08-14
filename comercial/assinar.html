@@ -685,6 +685,17 @@ async function carregarFotosProjetoDir(prodId) {
   } catch { return []; }
 }
 
+// Foto de projeto específica de um item (acn_item_projetos/{itemId}) — vendedor
+// pode trocar o projeto só para este pedido, sem mexer no produto do catálogo.
+const itemFotoProjetoCustom = {};
+async function carregarFotoProjetoItem(itemId) {
+  if (!itemId) return '';
+  try {
+    const snap = await db.collection('acn_item_projetos').doc(String(itemId)).get();
+    return snap.exists ? (snap.data().foto || '') : '';
+  } catch { return ''; }
+}
+
 // ── CARREGA PEDIDO ────────────────────────────────────────────────
 async function carregarPedido() {
   const params = new URLSearchParams(window.location.search);
@@ -727,6 +738,12 @@ async function carregarPedido() {
     const prodIdsEsq = [...new Set((p.items||[]).filter(it => it.lado === 'Esquerda' && it.prodId).map(it => it.prodId))];
     const fotosDirSnaps = await Promise.all(prodIdsEsq.map(pid => carregarFotosProjetoDir(pid)));
     prodIdsEsq.forEach((pid, i) => { prodFotosProjetoDir[String(pid)] = fotosDirSnaps[i]; });
+
+    // Itens com projeto específico (trocado só para este pedido) têm prioridade
+    // sobre o projeto padrão do produto.
+    const itensCustom = (p.items || []).filter(it => it.projetoCustom && it.id);
+    const customSnaps = await Promise.all(itensCustom.map(it => carregarFotoProjetoItem(it.id)));
+    itensCustom.forEach((it, i) => { itemFotoProjetoCustom[String(it.id)] = customSnaps[i]; });
 
     pararRelogioCarga();
     renderPedido(p);
@@ -789,6 +806,12 @@ function renderPedido(p) {
   // Itens
   const itensEl = document.getElementById('p-itens');
   itemsFotosProjetoAtual = (p.items||[]).map(item => {
+    // Projeto específico deste item (trocado só para este pedido) tem
+    // prioridade sobre o projeto padrão do produto no catálogo.
+    if (item.projetoCustom) {
+      const fc = itemFotoProjetoCustom[String(item.id)];
+      return fc ? [fc] : [];
+    }
     if (!item.prodId) return [];
     if (item.lado === 'Esquerda') {
       const fdir = prodFotosProjetoDir[String(item.prodId)];
