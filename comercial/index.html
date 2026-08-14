@@ -4002,7 +4002,7 @@ function renderItems() {
       </div>
       <div>
         <label class="form-label">Descrição</label>
-        <input class="form-input" id="desc-${item.id}" value="${escHtml(item.desc)}" placeholder="Descrição do item" oninput="onDescChange(${item.id}, this.value)"/>
+        <textarea class="form-input" id="desc-${item.id}" rows="1" style="resize:vertical;min-height:34px" placeholder="Descrição do item" oninput="onDescChange(${item.id}, this.value)">${escHtml(item.desc)}</textarea>
       </div>
       <div>
         <label class="form-label">Valor (R$)</label>
@@ -5244,7 +5244,7 @@ function renderItemsPedido() {
       </div>
       <div>
         <label class="form-label">Descrição</label>
-        <input class="form-input" id="pd-desc-${idx}" value="${escHtml(item.desc||'')}" placeholder="Descrição do item" oninput="onDescChangePd(${idx}, this.value)"/>
+        <textarea class="form-input" id="pd-desc-${idx}" rows="1" style="resize:vertical;min-height:34px" placeholder="Descrição do item" oninput="onDescChangePd(${idx}, this.value)">${escHtml(item.desc||'')}</textarea>
       </div>
       <div>
         <label class="form-label">Valor (R$)</label>
