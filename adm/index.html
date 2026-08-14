@@ -760,6 +760,12 @@ textarea{font-family:inherit}
             <option value="variavel">Variável (por venda)</option>
           </select>
         </div>
+        <div style="padding-bottom:2px;padding-top:22px">
+          <div class="check-row">
+            <input type="checkbox" id="v-meia"/>
+            <label for="v-meia">Permite comissão pela metade</label>
+          </div>
+        </div>
         <button class="btn btn-primary" onclick="addVendedor()">+ Adicionar</button>
       </div>
       <div id="lista-v" style="margin-top:12px"><p class="empty">Nenhum vendedor cadastrado.</p></div>
@@ -843,6 +849,12 @@ textarea{font-family:inherit}
           <option value="fixo">Fixo (recebe sempre em toda venda)</option>
           <option value="variavel">Variável (só nas vendas atribuídas a ele)</option>
         </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px;margin-bottom:0">
+      <div class="check-row">
+        <input type="checkbox" id="ev-meia"/>
+        <label for="ev-meia">Permite comissão pela metade</label>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:20px">
@@ -1015,7 +1027,7 @@ function normalizarPedidos(lista){
     if(!isNaN(cn)){
       q.com=cn;
     }else if(v){
-      q.com=parseFloat((q.val*numBR(v.perc)/100*(q.meia?0.5:1)).toFixed(2));
+      q.com=parseFloat((q.val*numBR(v.perc)/100*((q.meia&&v.permiteMeia)?0.5:1)).toFixed(2));
     }else{
       q.com=0;   // sem vendedor e sem valor legível: 0 explícito, nunca NaN
     }
@@ -1299,10 +1311,11 @@ function addVendedor(){
   const pc=parseFloat(document.getElementById('v-perc').value);
   const bn=parseFloat(document.getElementById('v-bonus').value)||0;
   const tp=(document.getElementById('v-tipo')||{}).value==='variavel'?'variavel':'fixo';
+  const pm=(document.getElementById('v-meia')||{}).checked||false;
   if(!n||isNaN(pc)||pc<=0){alert('Preencha nome e % de comissão.');return;}
   if(vs.find(v=>v.nome.toLowerCase()===n.toLowerCase())){alert('Vendedor já cadastrado.');return;}
-  vs.push({id:Date.now(),nome:n,perc:pc,bonus:bn,tipo:tp});
-  document.getElementById('v-nome').value='';document.getElementById('v-perc').value='';document.getElementById('v-bonus').value='';if(document.getElementById('v-tipo'))document.getElementById('v-tipo').value='fixo';
+  vs.push({id:Date.now(),nome:n,perc:pc,bonus:bn,tipo:tp,permiteMeia:pm});
+  document.getElementById('v-nome').value='';document.getElementById('v-perc').value='';document.getElementById('v-bonus').value='';if(document.getElementById('v-tipo'))document.getElementById('v-tipo').value='fixo';if(document.getElementById('v-meia'))document.getElementById('v-meia').checked=false;
   salvar();renderV();renderLinksVendedores();renderSel();renderTabs();renderAnunCfg(true);
 }
 function delV(id){
@@ -1324,7 +1337,7 @@ function renderV(){
     const tipoBadge=ehFixo
       ?'<span class="badge-fixo">📌 Fixo</span>'
       :'<span class="badge-var">🎯 Variável</span>';
-    h+='<tr><td><strong>'+v.nome+'</strong></td><td>'+tipoBadge+'</td><td>'+v.perc+'%</td>';
+    h+='<tr><td><strong>'+v.nome+'</strong></td><td>'+tipoBadge+'</td><td>'+v.perc+'%'+(v.permiteMeia?' <span class="badge-meia" title="Permite comissão pela metade">½</span>':'')+'</td>';
     h+='<td>'+(v.bonus>0?fmt(v.bonus)+'/nº':'—')+'</td>';
     h+='<td><span class="badge-ok">'+q+' pedido'+(q!==1?'s':'')+'</span></td>';
     h+='<td style="text-align:right;display:flex;gap:6px;justify-content:flex-end">';
@@ -1342,6 +1355,7 @@ function editarVendedor(id){
   document.getElementById('ev-perc').value=v.perc;
   document.getElementById('ev-bonus').value=v.bonus||'';
   if(document.getElementById('ev-tipo'))document.getElementById('ev-tipo').value=(v.tipo||'fixo');
+  if(document.getElementById('ev-meia'))document.getElementById('ev-meia').checked=v.permiteMeia||false;
   const overlay=document.getElementById('ev-overlay');
   const panel=document.getElementById('ev-panel');
   overlay.style.display='block';
@@ -1365,6 +1379,7 @@ function salvarEditVendedor(){
   const v=acharVend(id);if(!v)return;
   v.perc=pc;v.bonus=bn;
   if(document.getElementById('ev-tipo'))v.tipo=document.getElementById('ev-tipo').value==='variavel'?'variavel':'fixo';
+  if(document.getElementById('ev-meia'))v.permiteMeia=document.getElementById('ev-meia').checked;
   salvar();renderV();renderRel();renderSel();
   fecharEditVendedor();
 }
@@ -1452,7 +1467,9 @@ function alvosComissao(vidsSel){
 }
 function pushVenda(gid,base,alvos){
   alvos.forEach((v,i)=>{
-    const fator=base.meia?0.5:1;
+    // "Metade da comissão" só reduz de fato quem está marcado como elegível
+    // (v.permiteMeia) — os demais vendedores do mesmo pedido recebem cheio.
+    const fator=(base.meia&&v.permiteMeia)?0.5:1;
     ps.push(Object.assign({},base,{
       id:gid+i,gid,vid:v.id,vendedorNome:v.nome,
       com:parseFloat((Number(base.val)*v.perc/100*fator).toFixed(2))
@@ -1517,7 +1534,7 @@ function cancelUnique(){
    Calculado pela porcentagem (não pelo com gravado), p/ refletir sempre a % do pedido. */
 function comEstornoPedido(p){
   const vv=acharVend(p.vid);
-  const fator=p.meia?0.5:1;
+  const fator=(p.meia&&vv&&vv.permiteMeia)?0.5:1;
   if(vv)return parseFloat((numBR(p.val)*numBR(vv.perc)/100*fator).toFixed(2));
   const c=numBR(p.com);
   return isNaN(c)?0:c;
@@ -1527,7 +1544,7 @@ function comEstornoPedido(p){
    em vez de usar o `com` congelado, evitando divergência entre telas. */
 function comEstornoRegistro(e){
   const vv=acharVend(e.vid);
-  const fator=e.meia?0.5:1;
+  const fator=(e.meia&&vv&&vv.permiteMeia)?0.5:1;
   // valOrig não passa pela normalização, então pode chegar como texto.
   const vo=numBR(e.valOrig);
   if(!isNaN(vo)&&vv)return -parseFloat((vo*numBR(vv.perc)/100*fator).toFixed(2));

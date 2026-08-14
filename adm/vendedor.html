@@ -225,10 +225,11 @@ function comDoPedido(p){
   const c=numBR(p.com);
   if(!isNaN(c))return c;
   if(!vendedor)return 0;
-  return parseFloat((numBR(p.val)*numBR(vendedor.perc)/100*(p.meia?0.5:1)).toFixed(2));
+  const fator=(p.meia&&vendedor.permiteMeia)?0.5:1;
+  return parseFloat((numBR(p.val)*numBR(vendedor.perc)/100*fator).toFixed(2));
 }
 function comDoEstorno(e){
-  const fator=e.meia?0.5:1;
+  const fator=(e.meia&&vendedor&&vendedor.permiteMeia)?0.5:1;
   // valOrig não passa pela normalização, então pode chegar como texto.
   const vo=numBR(e.valOrig);
   if(!isNaN(vo)&&vendedor)return -parseFloat((vo*numBR(vendedor.perc)/100*fator).toFixed(2));
