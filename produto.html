@@ -994,6 +994,11 @@ var ACN3D = (function() {
       // pra nenhuma gravacao inteira ser perdida por causa disso.
       var inCentral = !!(window.centralPage && window.centralPage.saveRecording);
       var watchdogT = null, restarted = false, gotData = false;
+      // Lembra que o WebCodecs já falhou nesta sessão. Sem isto, a mensagem
+      // "grave de novo — vou usar o formato alternativo" era mentira: a
+      // gravação seguinte tentava WebCodecs outra vez e falhava igual, num
+      // laço sem saída (aparecia principalmente dentro da Central).
+      var wcFalhou = false;
       var audioCtx = null, srcNode = null, destNode = null, keepGain = null;
       var origPR = renderer.getPixelRatio();
       var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
@@ -1015,7 +1020,7 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-15-mp4';
+      var GRAVADOR_VERSAO = '2026-08-15-qualidade';
 
       var diag = {};
       function diagSet(k, v) { diag[k] = v; }
@@ -1053,7 +1058,16 @@ var ACN3D = (function() {
         // mais confiavel na maioria dos aparelhos. 'video/mp4' puro NAO entra:
         // o Chrome coloca audio Opus dentro do MP4 (e o WhatsApp nao toca
         // Opus) — por isso so pedimos AAC explicito.
-        var mp4 = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        // Ordem por QUALIDADE, não por compatibilidade: o primeiro aceito vence.
+        // avc1.42E01E é Baseline — sem CABAC e sem B-frames, ou seja, bem menos
+        // eficiente. Pedindo Baseline primeiro, a gravação saía em Baseline
+        // (confirmado num Android: o arquivo vinha como avc1.420032) e ficava
+        // com aparência "lavada"/quadriculada no mesmo bitrate. High 4.0 é
+        // decodificado por qualquer aparelho atual e pelo WhatsApp; Baseline
+        // fica só como última rede de segurança pra aparelho antigo.
+        var mp4 = ['video/mp4;codecs=avc1.640028,mp4a.40.2',  // High 4.0
+                   'video/mp4;codecs=avc1.4D0028,mp4a.40.2',  // Main 4.0
+                   'video/mp4;codecs=avc1.42E01E,mp4a.40.2',  // Baseline 3.0
                    'video/mp4;codecs=avc1,mp4a.40.2',
                    'video/mp4;codecs=h264,aac'];
         var webm = ['video/webm;codecs=vp9,opus',
@@ -1086,7 +1100,15 @@ var ACN3D = (function() {
           if (on) {
             var w = container.clientWidth || 300, h = container.clientHeight || 300;
             var longSide = Math.max(w, h) || 300;
-            var pr = Math.min(4, Math.max(origPR, 1600 / longSide));   // alvo ~1600px no lado maior
+            // Alvo ~1920px no lado maior (era 1600). O vídeo é gravado no
+            // tamanho do canvas, então esta é a resolução final do arquivo —
+            // e o WhatsApp ainda recomprime por cima, então vale entregar com
+            // folga.
+            // O teto existe pra não explodir a GPU de aparelho fraco, mas em 4x
+            // ELE é que mandava: um container de 400px parava em 1600 e o alvo
+            // nunca era atingido. Em 6x um container de 320px já chega nos
+            // 1920 (1920x1440 ≈ 11 MB de buffer — tranquilo em celular atual).
+            var pr = Math.min(6, Math.max(origPR, 1920 / longSide));
             renderer.setPixelRatio(pr);
           } else {
             renderer.setPixelRatio(origPR);
@@ -1162,7 +1184,7 @@ var ACN3D = (function() {
         // completamente separado. Antes ela era excluída e por isso todo vídeo
         // gravado na Central saía WEBM, com a mensagem "arraste pro WhatsApp"
         // que nunca ia funcionar.
-        if (!preferWebm) {
+        if (!preferWebm && !wcFalhou) {
           var m0 = pickMime(inCentral);
           var precisaWC = m0 && m0.indexOf('mp4') === -1;  // '' = Safari (MP4 nativo)
           diagSet('MediaRecorder aceita', m0 || '(nenhum dos testados — padrão do navegador)');
@@ -1174,6 +1196,7 @@ var ACN3D = (function() {
               var okWC = await startWebCodecs();
               diagSet('WebCodecs iniciou', okWC ? 'sim' : 'NÃO — caiu no MediaRecorder');
               if (okWC) return;                            // gravando via WebCodecs
+              wcFalhou = true;   // não insiste nas próximas gravações desta sessão
               // falhou → segue no MediaRecorder abaixo (WEBM com instrução de Documento)
             }
           }
@@ -1183,7 +1206,12 @@ var ACN3D = (function() {
         // costuma falhar calado ali). Fora da Central, continua preferindo
         // MP4 (melhor compatibilidade), com WEBM so como plano B automatico.
         var mime = pickMime(preferWebm || inCentral);
-        var opt = { videoBitsPerSecond: (isMobile ? 8000000 : 14000000), audioBitsPerSecond: (isMobile ? 128000 : 256000) };
+        // Bitrate mais alto no celular (era 8 Mbps): a gravação agora sai em
+        // ~1920px e o WhatsApp recomprime por cima, então sair apertado daqui
+        // vira artefato visível no vídeo que o cliente recebe. Um vídeo de 1
+        // minuto a 12 Mbps dá ~90 MB, acima do limite do WhatsApp — por isso o
+        // aviso de tamanho continua valendo pra gravações longas.
+        var opt = { videoBitsPerSecond: (isMobile ? 12000000 : 16000000), audioBitsPerSecond: (isMobile ? 128000 : 256000) };
         if (mime) opt.mimeType = mime;
         try {
           rec = new MediaRecorder(mixStream, opt);
@@ -1279,7 +1307,7 @@ var ACN3D = (function() {
           var candidatos = ['avc1.640028','avc1.4D4028','avc1.42E028','avc1.42E01F','avc1.42E01E'];
           for (var i = 0; i < candidatos.length; i++) {
             var cfg = { codec: candidatos[i], width: w2, height: h2,
-                        bitrate: 8000000, framerate: 30, avc: { format: 'avc' } };
+                        bitrate: 12000000, framerate: 30, avc: { format: 'avc' } };
             try {
               var sup = await VideoEncoder.isConfigSupported(cfg);
               if (sup && sup.supported) { vCfg = cfg; break; }
@@ -1371,9 +1399,10 @@ var ACN3D = (function() {
                 stopTracks(); resetUI(); controls.autoRotate = !userStopped; rec = null;
                 if (destroyed) return;
                 if (falhou || !blob || !blob.size) {
+                  wcFalhou = true;   // a promessa abaixo agora é cumprida de verdade
                   diagSet('gravado por', 'WebCodecs — mas a montagem do MP4 FALHOU');
                   btnDiag.style.display = 'flex';
-                  flash('Não consegui montar o MP4 neste aparelho. Grave de novo — vou usar o formato alternativo.', 6000);
+                  flash('Não consegui montar o MP4 neste aparelho. Grave de novo — desta vez vou usar o formato alternativo.', 6000);
                   return;
                 }
                 diagSet('gravado por', 'WebCodecs (H.264 + AAC → MP4)');
