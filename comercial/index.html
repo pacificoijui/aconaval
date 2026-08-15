@@ -3996,6 +3996,14 @@ function removeItem(id) {
   if (items.length <= 1) return;
   items = items.filter(i => i.id != id); renderItems(); updatePreview();
 }
+// Cresce a altura do textarea conforme o texto digitado, em vez de ficar
+// numa caixinha fixa com scroll interno — usado nas descrições de item do
+// orçamento e do pedido, que costumam ter várias linhas (nome + dimensões +
+// observação) e ficavam difíceis de escrever/revisar com scroll.
+function autoResizeTA(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
 function renderItems() {
   const c = document.getElementById('items-container');
   c.innerHTML = items.map(item => `
@@ -4022,7 +4030,7 @@ function renderItems() {
       </div>
       <div>
         <label class="form-label">Descrição</label>
-        <textarea class="form-input" id="desc-${item.id}" rows="1" style="resize:vertical;min-height:34px" placeholder="Descrição do item" oninput="onDescChange(${item.id}, this.value)">${escHtml(item.desc)}</textarea>
+        <textarea class="form-input desc-ta" id="desc-${item.id}" rows="1" style="resize:vertical;min-height:34px;overflow:hidden" placeholder="Descrição do item" oninput="autoResizeTA(this);onDescChange(${item.id}, this.value)">${escHtml(item.desc)}</textarea>
       </div>
       <div>
         <label class="form-label">Valor (R$)</label>
@@ -4035,6 +4043,9 @@ function renderItems() {
       ${itemPrecisaLado(item) ? ladoChipsHtml(item, 'setLadoOrc', item.id) : ''}
       ${item.prodId ? projetoCustomHtml(item, item.id, 'toggleProjetoCustom', 'onProjetoCustomFotoChange', 'removeProjetoCustomFoto') : ''}
     </div>`).join('');
+  // Dimensiona já na primeira renderização (produto selecionado, edição de
+  // orçamento existente) — sem isso só crescia depois do usuário digitar.
+  c.querySelectorAll('.desc-ta').forEach(autoResizeTA);
 }
 function setLadoOrc(id, lado) {
   const item = items.find(i => i.id == id); if (!item) return;
@@ -4120,7 +4131,7 @@ function selectProd(itemId, prodId) {
   }
   const codEl = document.getElementById('cod-'+itemId); if(codEl) codEl.value = item.codigoInput;
   const inp = document.getElementById('search-'+itemId); if(inp) inp.value = prod.nome;
-  const descEl = document.getElementById('desc-'+itemId); if(descEl) descEl.value = item.desc;
+  const descEl = document.getElementById('desc-'+itemId); if(descEl) { descEl.value = item.desc; autoResizeTA(descEl); }
   const precoEl = document.getElementById('preco-'+itemId); if(precoEl) precoEl.value = item.preco;
   const drop = document.getElementById('drop-'+itemId); if(drop) drop.classList.remove('open');
   if (itemPrecisaLado(item)) renderItems();  // desenha a linha de escolha do sentido
@@ -5336,7 +5347,7 @@ function renderItemsPedido() {
       </div>
       <div>
         <label class="form-label">Descrição</label>
-        <textarea class="form-input" id="pd-desc-${idx}" rows="1" style="resize:vertical;min-height:34px" placeholder="Descrição do item" oninput="onDescChangePd(${idx}, this.value)">${escHtml(item.desc||'')}</textarea>
+        <textarea class="form-input desc-ta" id="pd-desc-${idx}" rows="1" style="resize:vertical;min-height:34px;overflow:hidden" placeholder="Descrição do item" oninput="autoResizeTA(this);onDescChangePd(${idx}, this.value)">${escHtml(item.desc||'')}</textarea>
       </div>
       <div>
         <label class="form-label">Valor (R$)</label>
@@ -5349,6 +5360,9 @@ function renderItemsPedido() {
       ${itemPrecisaLado(item) ? ladoChipsHtml(item, 'setLadoPd', idx) : ''}
       ${item.prodId ? projetoCustomHtml(item, idx, 'toggleProjetoCustomPd', 'onProjetoCustomFotoChangePd', 'removeProjetoCustomFotoPd') : ''}
     </div>`).join('');
+  // Dimensiona já na primeira renderização (produto selecionado, edição de
+  // pedido existente) — sem isso só crescia depois do usuário digitar.
+  c.querySelectorAll('.desc-ta').forEach(autoResizeTA);
 }
 function setLadoPd(idx, lado) {
   const item = itemsPedido[idx]; if (!item) return;
