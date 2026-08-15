@@ -1107,13 +1107,20 @@ var ACN3D = (function() {
           mixStream = cs;
         }
 
-        // ── CELULAR SEM MP4 NATIVO (Chrome/Android): o MediaRecorder só gera
-        // WEBM, e o WhatsApp recusa WEBM ("não foi possível enviar o vídeo").
+        // ── SEM MP4 NATIVO (Chrome/Android, Firefox, e a própria Central): o
+        // MediaRecorder só gera WEBM, e o WhatsApp recusa WEBM ("não foi
+        // possível enviar o vídeo" / "formato não compatível").
         // Solução: codificar H.264 + AAC com o WebCodecs (encoder de hardware
         // do próprio aparelho) e montar o MP4 aqui mesmo com o mp4-muxer.
         // Se qualquer etapa falhar, cai de volta pro MediaRecorder normal.
-        if (!inCentral && !preferWebm) {
-          var m0 = pickMime(false);
+        //
+        // A Central entra aqui também: o que falha calado nela é o MP4 do
+        // MediaRecorder, não o WebCodecs — que é um caminho de codificação
+        // completamente separado. Antes ela era excluída e por isso todo vídeo
+        // gravado na Central saía WEBM, com a mensagem "arraste pro WhatsApp"
+        // que nunca ia funcionar.
+        if (!preferWebm) {
+          var m0 = pickMime(inCentral);
           var precisaWC = m0 && m0.indexOf('mp4') === -1;  // '' = Safari (MP4 nativo)
           if (precisaWC && window.VideoEncoder && window.AudioEncoder && window.VideoFrame && window.AudioData) {
             var okWC = await startWebCodecs();
@@ -1164,10 +1171,25 @@ var ACN3D = (function() {
       function carregarMp4Muxer() {
         if (window.Mp4Muxer) return Promise.resolve(true);
         if (mp4MuxerPromise) return mp4MuxerPromise;
+        // Dois cuidados aqui, ambos já causaram gravação caindo pra WEBM:
+        //
+        // 1) NOME DO ARQUIVO: o pacote mp4-muxer publica APENAS
+        //    build/mp4-muxer.js — não existe mp4-muxer.min.js dentro dele.
+        //    A lista antiga pedia só o .min.js, então dependia da minificação
+        //    na hora do CDN; sem ela os 3 endereços davam 404, o muxer nunca
+        //    carregava e a gravação caía calada no WEBM.
+        //
+        // 2) VERSÃO: a v4 e a v3 são as testadas contra o uso feito aqui
+        //    (Muxer + ArrayBufferTarget, codec avc/aac, fastStart in-memory).
+        //    A v5 mudou o comportamento interno e estoura nessa mesma sequência
+        //    de chamadas, por isso saiu da lista — antes ela era a PRIMEIRA
+        //    tentativa. Um erro aqui é invisível pro usuário: cai no WEBM.
+        //    Só volte a subir de versão depois de testar o fluxo inteiro.
         var urls = [
-          'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.min.js',
-          'https://cdn.jsdelivr.net/npm/mp4-muxer@4/build/mp4-muxer.min.js',
-          'https://cdn.jsdelivr.net/npm/mp4-muxer@3/build/mp4-muxer.min.js'
+          'https://cdn.jsdelivr.net/npm/mp4-muxer@4/build/mp4-muxer.js',
+          'https://unpkg.com/mp4-muxer@4/build/mp4-muxer.js',
+          'https://cdn.jsdelivr.net/npm/mp4-muxer@3/build/mp4-muxer.js',
+          'https://unpkg.com/mp4-muxer@3/build/mp4-muxer.js'
         ];
         mp4MuxerPromise = new Promise(function(resolve) {
           var i = 0;
@@ -1344,7 +1366,12 @@ var ACN3D = (function() {
             var ab = await blob.arrayBuffer();
             var res = await window.centralPage.saveRecording(nome, blob.type, new Uint8Array(ab));
             if (res && res.ok) {
-              flash('✅ Vídeo salvo nos downloads da Central! É só arrastar pra conversa do WhatsApp.', 6000);
+              // Só promete "arrastar pro WhatsApp" quando o arquivo é MP4. Em
+              // WEBM o WhatsApp recusa com "formato não compatível", e a
+              // mensagem antiga mandava arrastar assim mesmo.
+              flash(ext === 'mp4'
+                ? '✅ Vídeo salvo nos downloads da Central! É só arrastar pra conversa do WhatsApp.'
+                : '⚠️ Vídeo salvo nos downloads da Central, mas em WEBM — o WhatsApp não aceita esse formato como vídeo. Envie pelo clipe 📎 como Documento, ou converta para MP4 antes.', 9000);
               return;
             }
           } catch(e) { /* qualquer falha aqui -> cai no download normal abaixo */ }
@@ -1377,8 +1404,14 @@ var ACN3D = (function() {
         // no disco depois do clique — revogar em 4s abortava o download no meio
         // e o arquivo saía vazio/incompleto.
         setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 180000);
-        if (isMobile && ext === 'webm') {
-          flash('📎 Seu aparelho não gera MP4 — o vídeo foi baixado. No WhatsApp, use Anexar → Documento para enviá-lo (como vídeo o WhatsApp recusa WEBM).', 9000);
+        // O aviso de WEBM vale em QUALQUER aparelho, não só no celular: no PC a
+        // mensagem antiga mandava arrastar o arquivo pra conversa mesmo quando
+        // ele era WEBM, e aí o WhatsApp respondia "formato não compatível" sem
+        // o usuário entender o porquê.
+        if (ext === 'webm') {
+          flash(isMobile
+            ? '📎 Seu aparelho não gera MP4 — o vídeo foi baixado em WEBM. No WhatsApp, use Anexar → Documento para enviá-lo (como vídeo o WhatsApp recusa WEBM).'
+            : '📎 Este navegador não gera MP4 — o vídeo foi baixado em WEBM, que o WhatsApp não aceita como vídeo. Envie pelo clipe 📎 como Documento, converta para MP4, ou grave pelo Chrome/Edge.', 9000);
         } else {
           flash('✅ Video baixado! Arraste o arquivo pra conversa do WhatsApp.', 5000);
         }
