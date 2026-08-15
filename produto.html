@@ -1004,6 +1004,49 @@ var ACN3D = (function() {
         clearTimeout(toast._t);
         if (ms) toast._t = setTimeout(function(){ toast.style.display = 'none'; }, ms);
       }
+
+      // ── Diagnóstico da última gravação ────────────────────────────────
+      // Quando o vídeo sai num formato que o WhatsApp recusa, o motivo pode
+      // estar em vários pontos (encoder do aparelho, muxer que não carregou,
+      // folha de compartilhamento). Sem saber QUAL deles falhou só dá pra
+      // chutar. Isto guarda os fatos da última gravação; o botão "ⓘ" que
+      // aparece ao lado do gravador mostra e copia tudo, pra poder relatar.
+      // Marcador de versão: serve pra saber, olhando o diagnóstico, se o
+      // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
+      // isso não dá pra distinguir "a correção não funcionou" de "o celular
+      // nem baixou a correção ainda".
+      var GRAVADOR_VERSAO = '2026-08-15-mp4';
+
+      var diag = {};
+      function diagSet(k, v) { diag[k] = v; }
+      function diagTexto() {
+        var l = [];
+        l.push('— Diagnóstico da gravação 3D —');
+        l.push('versão do gravador: ' + GRAVADOR_VERSAO);
+        l.push('aparelho: ' + (isMobile ? 'celular' : 'PC') + (inCentral ? ' (Central)' : ''));
+        l.push('navegador: ' + navigator.userAgent);
+        for (var k in diag) if (Object.prototype.hasOwnProperty.call(diag, k)) l.push(k + ': ' + diag[k]);
+        return l.join('\n');
+      }
+
+      var btnDiag = document.createElement('button');
+      btnDiag.type = 'button';
+      btnDiag.title = 'Detalhes técnicos da última gravação';
+      btnDiag.textContent = 'ⓘ';
+      // Canto inferior DIREITO: o esquerdo já tem o botão de gravar (bottom:10px),
+      // o cronômetro (left:60px) e o toast de aviso (bottom:60px) — sobrepor
+      // qualquer um deles esconderia justamente a mensagem que explica o erro.
+      btnDiag.style.cssText = 'position:absolute;right:10px;bottom:10px;z-index:32;width:30px;height:30px;border-radius:50%;border:none;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.92);color:#333;font:700 15px/1 -apple-system,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation';
+      container.appendChild(btnDiag);
+      btnDiag.addEventListener('click', function() {
+        var txt = diagTexto();
+        var copiado = function(){ flash('📋 Detalhes copiados — é só colar na conversa pra relatar o problema.', 6000); };
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(copiado, function(){ flash(txt, 20000); });
+          } else { flash(txt, 20000); }
+        } catch(e) { flash(txt, 20000); }
+      });
       function fmt(s){ var m=Math.floor(s/60), x=s%60; return m+':'+(x<10?'0':'')+x; }
       function pickMime(preferWebm) {
         // MP4 com AAC e a combinacao que o WhatsApp reproduz com som de forma
@@ -1122,10 +1165,17 @@ var ACN3D = (function() {
         if (!preferWebm) {
           var m0 = pickMime(inCentral);
           var precisaWC = m0 && m0.indexOf('mp4') === -1;  // '' = Safari (MP4 nativo)
-          if (precisaWC && window.VideoEncoder && window.AudioEncoder && window.VideoFrame && window.AudioData) {
-            var okWC = await startWebCodecs();
-            if (okWC) return;                              // gravando via WebCodecs
-            // falhou → segue no MediaRecorder abaixo (WEBM com instrução de Documento)
+          diagSet('MediaRecorder aceita', m0 || '(nenhum dos testados — padrão do navegador)');
+          diagSet('precisa WebCodecs', precisaWC ? 'sim' : 'não');
+          if (precisaWC) {
+            var temWC = !!(window.VideoEncoder && window.AudioEncoder && window.VideoFrame && window.AudioData);
+            diagSet('WebCodecs disponível', temWC ? 'sim' : 'NÃO (aparelho/navegador sem suporte)');
+            if (temWC) {
+              var okWC = await startWebCodecs();
+              diagSet('WebCodecs iniciou', okWC ? 'sim' : 'NÃO — caiu no MediaRecorder');
+              if (okWC) return;                            // gravando via WebCodecs
+              // falhou → segue no MediaRecorder abaixo (WEBM com instrução de Documento)
+            }
           }
         }
 
@@ -1195,10 +1245,18 @@ var ACN3D = (function() {
           var i = 0;
           (function tenta() {
             if (window.Mp4Muxer) return resolve(true);
-            if (i >= urls.length) { mp4MuxerPromise = null; return resolve(false); }
+            if (i >= urls.length) {
+              mp4MuxerPromise = null;
+              diagSet('mp4-muxer', 'NÃO carregou — nenhum dos ' + urls.length + ' endereços respondeu (sem internet? CDN bloqueado?)');
+              return resolve(false);
+            }
             var s = document.createElement('script');
-            s.src = urls[i++];
-            s.onload = function(){ resolve(!!window.Mp4Muxer); };
+            var alvo = urls[i++];
+            s.src = alvo;
+            s.onload = function(){
+              diagSet('mp4-muxer', window.Mp4Muxer ? ('carregou de ' + alvo) : ('baixou de ' + alvo + ' mas não expôs a biblioteca'));
+              resolve(!!window.Mp4Muxer);
+            };
             s.onerror = function(){ tenta(); };
             document.head.appendChild(s);
           })();
@@ -1227,15 +1285,17 @@ var ACN3D = (function() {
               if (sup && sup.supported) { vCfg = cfg; break; }
             } catch(e) {}
           }
-          if (!vCfg) return false;
+          if (!vCfg) { diagSet('encoder H.264', 'NENHUM perfil aceito pelo aparelho (' + w2 + 'x' + h2 + ')'); return false; }
+          diagSet('encoder H.264', vCfg.codec + ' @ ' + w2 + 'x' + h2);
 
           // Encoder de áudio AAC (obrigatório: o WhatsApp não toca Opus em MP4)
           var sr = (audioCtx && audioCtx.sampleRate) || 48000;
           var aCfg = { codec: 'mp4a.40.2', sampleRate: sr, numberOfChannels: 1, bitrate: 128000 };
           try {
             var asup = await AudioEncoder.isConfigSupported(aCfg);
-            if (!asup || !asup.supported) return false;
-          } catch(e) { return false; }
+            if (!asup || !asup.supported) { diagSet('encoder AAC', 'NÃO suportado pelo aparelho'); return false; }
+            diagSet('encoder AAC', 'ok @ ' + sr + 'Hz');
+          } catch(e) { diagSet('encoder AAC', 'erro ao consultar: ' + ((e && e.message) || e)); return false; }
 
           var muxer = new Mp4Muxer.Muxer({
             target: new Mp4Muxer.ArrayBufferTarget(),
@@ -1311,9 +1371,12 @@ var ACN3D = (function() {
                 stopTracks(); resetUI(); controls.autoRotate = !userStopped; rec = null;
                 if (destroyed) return;
                 if (falhou || !blob || !blob.size) {
+                  diagSet('gravado por', 'WebCodecs — mas a montagem do MP4 FALHOU');
+                  btnDiag.style.display = 'flex';
                   flash('Não consegui montar o MP4 neste aparelho. Grave de novo — vou usar o formato alternativo.', 6000);
                   return;
                 }
+                diagSet('gravado por', 'WebCodecs (H.264 + AAC → MP4)');
                 await entregarVideo(blob, 'mp4');
               })();
             }
@@ -1335,6 +1398,8 @@ var ACN3D = (function() {
         if (timer) { clearInterval(timer); timer = null; }
         var mime = (rec && rec.mimeType) || pickMime(inCentral) || 'video/webm';
         var ext  = mime.indexOf('mp4') > -1 ? 'mp4' : 'webm';
+        diagSet('gravado por', 'MediaRecorder');
+        diagSet('formato real do MediaRecorder', mime);
         var blob = new Blob(chunks, { type: (mime.split(';')[0] || 'video/webm') });
         stopTracks(); resetUI(); controls.autoRotate = !userStopped;
         if (destroyed) return;
@@ -1355,6 +1420,14 @@ var ACN3D = (function() {
                     .replace(/[^\w\-]+/g,'-').replace(/^-+|-+$/g,'').toLowerCase() || 'aconaval-3d';
         var nome = base + '.' + ext;
         var file = new File([blob], nome, { type: blob.type });
+
+        diagSet('arquivo gerado', nome + ' · ' + (blob.type || '(sem tipo)') + ' · ' + Math.round(blob.size/1024) + ' KB');
+        try {
+          diagSet('navigator.share', !navigator.share ? 'não existe neste navegador'
+            : (!navigator.canShare ? 'existe, mas sem canShare'
+            : (navigator.canShare({ files:[file] }) ? 'aceita compartilhar este arquivo' : 'RECUSA este arquivo (canShare=false)')));
+        } catch(e) { diagSet('navigator.share', 'erro ao consultar: ' + ((e && e.message) || e)); }
+        btnDiag.style.display = 'flex';   // a partir daqui dá pra consultar os detalhes
 
         // CENTRAL AÇO NAVAL (app do PC): salva DIRETO nos downloads da Central.
         // O download de blob: dentro do app chegava VAZIO (a janela/URL do blob
@@ -1387,11 +1460,16 @@ var ACN3D = (function() {
         // baixa o arquivo e ensina a enviar como Documento (que o WhatsApp aceita).
         if (isMobile && ext === 'mp4' && navigator.canShare && navigator.canShare({ files:[file] })) {
           try {
-            await navigator.share({ files:[file], title:'Aco Naval 3D' });
+            // Sem 'title': alguns aparelhos tratam o compartilhamento como texto
+            // quando vem título junto do arquivo, e o app de destino acaba
+            // recebendo só o texto (ou recusando o conjunto).
+            await navigator.share({ files:[file] });
+            diagSet('resultado', 'folha de compartilhamento abriu normalmente');
             flash('✅ Pronto! Escolha o WhatsApp na lista para enviar.', 3500);
             return;
           } catch(e) {
-            if (e && e.name === 'AbortError') return; // usuario cancelou a folha
+            if (e && e.name === 'AbortError') { diagSet('resultado', 'você fechou a folha de compartilhamento'); return; }
+            diagSet('resultado', 'navigator.share falhou: ' + ((e && (e.name + ' — ' + e.message)) || e) + ' → baixando o arquivo');
             // qualquer outro erro → cai pro download abaixo
           }
         }
