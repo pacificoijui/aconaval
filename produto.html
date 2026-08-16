@@ -957,6 +957,86 @@ var ACN3D = (function() {
       }
     });
 
+    // ── PONTEIRO PARA APONTAR DETALHES DURANTE A GRAVACAO ──────────────
+    // A gravacao captura o canvas do WebGL (captureStream), e so isso — um
+    // cursor desenhado em HTML/CSS por cima do canvas NAO entraria no video.
+    // Por isso o ponteiro e um objeto DA CENA 3D: ele e renderizado junto com
+    // o modelo e portanto aparece na gravacao em qualquer aparelho.
+    // So fica visivel enquanto grava, pra nao poluir a visualizacao do cliente.
+    var ponteiro = null, ponteiroAtivo = false, ponteiroTimer = null;
+
+    function criarPonteiro() {
+      if (ponteiro) return ponteiro;
+      // Anel vermelho com contorno branco: fica legivel tanto em peca escura
+      // (preto fosco) quanto em superficie clara.
+      var c = document.createElement('canvas'); c.width = c.height = 128;
+      var g = c.getContext('2d');
+      g.clearRect(0, 0, 128, 128);
+      g.lineWidth = 10;
+      g.strokeStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.arc(64, 64, 40, 0, Math.PI*2); g.stroke();
+      g.strokeStyle = 'rgba(224,53,43,1)';     g.beginPath(); g.arc(64, 64, 40, 0, Math.PI*2); g.lineWidth = 7; g.stroke();
+      g.fillStyle   = 'rgba(224,53,43,.92)';   g.beginPath(); g.arc(64, 64, 13, 0, Math.PI*2); g.fill();
+      g.fillStyle   = 'rgba(255,255,255,.95)'; g.beginPath(); g.arc(64, 64, 6,  0, Math.PI*2); g.fill();
+      var tex = new THREE.CanvasTexture(c);
+      // O renderer usa outputEncoding sRGB. Sem marcar a textura como sRGB
+      // tambem, ela e tratada como dado linear e convertida na saida — o
+      // vermelho (224,53,43) chegava na tela como um salmao lavado (~240,126,115).
+      tex.encoding = THREE.sRGBEncoding;
+      var mat = new THREE.SpriteMaterial({
+        map: tex, transparent: true, depthTest: false, depthWrite: false,
+        sizeAttenuation: false            // tamanho constante na tela, perto ou longe
+      });
+      ponteiro = new THREE.Sprite(mat);
+      // Tamanho: grande o bastante pra sobreviver a recompressao do WhatsApp,
+      // mas com o meio vazado — ele CERCA o detalhe apontado em vez de cobrir.
+      ponteiro.scale.set(0.13, 0.13, 1);
+      ponteiro.renderOrder = 9999;        // sempre por cima da peca
+      ponteiro.visible = false;
+      scene.add(ponteiro);
+      return ponteiro;
+    }
+
+    // Coloca o ponteiro no ponto da peca que esta sob o dedo/mouse
+    var ponteiroRay = new THREE.Raycaster();
+    function moverPonteiro(clientX, clientY) {
+      if (!ponteiroAtivo) return;
+      var p = criarPonteiro();
+      var rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      var m = new THREE.Vector2(
+        ((clientX - rect.left) / rect.width)  * 2 - 1,
+       -((clientY - rect.top)  / rect.height) * 2 + 1
+      );
+      ponteiroRay.setFromCamera(m, camera);
+      var hits = ponteiroRay.intersectObjects(scene.children, true);
+      for (var i = 0; i < hits.length; i++) {
+        if (hits[i].object.isMesh && hits[i].object !== p) {
+          p.position.copy(hits[i].point);
+          p.visible = true;
+          // Some sozinho depois de parado: um ponteiro esquecido no meio da
+          // peca atrapalha mais do que ajuda no video.
+          clearTimeout(ponteiroTimer);
+          ponteiroTimer = setTimeout(function(){ if (ponteiro) ponteiro.visible = false; }, 2500);
+          return;
+        }
+      }
+    }
+    canvas.addEventListener('pointermove', function(e){ moverPonteiro(e.clientX, e.clientY); });
+    canvas.addEventListener('pointerdown', function(e){ moverPonteiro(e.clientX, e.clientY); });
+    canvas.addEventListener('pointerleave', function(){ if (ponteiro) ponteiro.visible = false; });
+
+    function setPonteiroAtivo(on) {
+      ponteiroAtivo = on;
+      // So cancela o auto-ocultar ao DESLIGAR. Cancelando tambem ao ligar, um
+      // ponteiro ja visivel ficava preso na tela: o watchdog da gravacao chama
+      // uiStart() de novo no meio (quando troca de formato), e isso matava o
+      // timer pendente sem reagendar — o ponteiro so sumia no proximo movimento.
+      if (!on) {
+        clearTimeout(ponteiroTimer);
+        if (ponteiro) ponteiro.visible = false;
+      }
+    }
+
     // ── Gravacao: canvas (so o modelo 3D) + voz → compartilhar no WhatsApp ──
     var hardStopRec = function(){};
     (function setupRec() {
@@ -1020,7 +1100,7 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-15-qualidade';
+      var GRAVADOR_VERSAO = '2026-08-15-ponteiro';
 
       var diag = {};
       function diagSet(k, v) { diag[k] = v; }
@@ -1079,6 +1159,7 @@ var ACN3D = (function() {
       }
       function resetUI() {
         if (timer) { clearInterval(timer); timer = null; }
+        setPonteiroAtivo(false);            // some com o ponteiro fora da gravacao
         btn.style.background = 'rgba(255,255,255,.9)';
         dot.style.borderRadius = '50%';
         dot.style.background = '#e0352b';
@@ -1086,6 +1167,7 @@ var ACN3D = (function() {
       }
       function uiStart() {
         controls.autoRotate = false;        // voce controla o angulo enquanto narra
+        setPonteiroAtivo(true);             // libera o ponteiro que aparece no video
         btn.style.background = 'rgba(255,255,255,.97)';
         dot.style.borderRadius = '3px';      // vira quadrado (stop)
         dot.style.background = '#c62828';
@@ -1093,7 +1175,9 @@ var ACN3D = (function() {
         labTime.textContent = '0:00';
         lab.style.display = 'inline-flex';
         timer = setInterval(function(){ labTime.textContent = fmt(Math.floor((Date.now()-t0)/1000)); }, 500);
-        flash('Gravando… fale e gire o modelo. Toque no botao para encerrar.', 2800);
+        flash(isMobile
+          ? 'Gravando… fale e gire o modelo. Encoste o dedo na peça para apontar um detalhe.'
+          : 'Gravando… fale e gire o modelo. Passe o mouse sobre a peça para apontar um detalhe.', 3600);
       }
       function boostResolution(on) {
         try {
