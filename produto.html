@@ -1085,6 +1085,10 @@ var ACN3D = (function() {
       // pra nenhuma gravacao inteira ser perdida por causa disso.
       var inCentral = !!(window.centralPage && window.centralPage.saveRecording);
       var watchdogT = null, restarted = false, gotData = false;
+      // Qual opcao da lista de formatos esta sendo usada. O watchdog avanca
+      // este indice em vez de desistir do MP4 na primeira falha.
+      var tentativaMime = 0;
+      var MAX_TENTATIVAS = 3;
       // Lembra que o WebCodecs já falhou nesta sessão. Sem isto, a mensagem
       // "grave de novo — vou usar o formato alternativo" era mentira: a
       // gravação seguinte tentava WebCodecs outra vez e falhava igual, num
@@ -1115,7 +1119,7 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-15-muxer-voz';
+      var GRAVADOR_VERSAO = '2026-08-15-formato-estavel';
 
       var diag = {};
       function diagSet(k, v) { diag[k] = v; }
@@ -1148,7 +1152,10 @@ var ACN3D = (function() {
         } catch(e) { flash(txt, 20000); }
       });
       function fmt(s){ var m=Math.floor(s/60), x=s%60; return m+':'+(x<10?'0':'')+x; }
-      function pickMime(preferWebm) {
+      // Devolve TODOS os formatos aceitos, em ordem de preferencia — nao so o
+      // primeiro. Se o preferido falhar em silencio, o watchdog usa o proximo
+      // da lista em vez de pular direto pro WEBM.
+      function listaMimes(preferWebm) {
         // MP4 com AAC e a combinacao que o WhatsApp reproduz com som de forma
         // mais confiavel na maioria dos aparelhos. 'video/mp4' puro NAO entra:
         // o Chrome coloca audio Opus dentro do MP4 (e o WhatsApp nao toca
@@ -1176,8 +1183,13 @@ var ACN3D = (function() {
                     'video/webm;codecs=vp8,opus',
                     'video/webm'];
         var c = preferWebm ? webm.concat(mp4) : mp4.concat(webm);
-        for (var i=0;i<c.length;i++){ try{ if(MediaRecorder.isTypeSupported(c[i])) return c[i]; }catch(e){} }
-        return '';   // Safari sem match → o padrao do proprio Safari ja e MP4/AAC
+        var out = [];
+        for (var i=0;i<c.length;i++){ try{ if(MediaRecorder.isTypeSupported(c[i])) out.push(c[i]); }catch(e){} }
+        return out;  // vazio no Safari → o padrao do proprio Safari ja e MP4/AAC
+      }
+      function pickMime(preferWebm) {
+        var l = listaMimes(preferWebm);
+        return l.length ? l[0] : '';
       }
       function resetUI() {
         if (timer) { clearInterval(timer); timer = null; }
@@ -1378,7 +1390,8 @@ var ACN3D = (function() {
         // Dentro da Central, comeca preferindo WEBM direto (evita o MP4 que
         // costuma falhar calado ali). Fora da Central, continua preferindo
         // MP4 (melhor compatibilidade), com WEBM so como plano B automatico.
-        var mime = pickMime(preferWebm || inCentral);
+        var listaAtual = listaMimes(preferWebm || inCentral);
+        var mime = listaAtual[tentativaMime] || listaAtual[0] || '';
         // Bitrate mais alto no celular (era 8 Mbps): a gravação agora sai em
         // ~1920px e o WhatsApp recomprime por cima, então sair apertado daqui
         // vira artefato visível no vídeo que o cliente recebe. Um vídeo de 1
@@ -1395,25 +1408,37 @@ var ACN3D = (function() {
         chunks = []; gotData = false;
         rec.ondataavailable = function(ev){ if (ev.data && ev.data.size) { chunks.push(ev.data); gotData = true; } };
         rec.onstop = finish;
-        rec.start(1000); // pedaços de 1s: da pro watchdog conferir se ta chegando byte de verdade
+        // Pedaços de 250ms (era 1000ms). O watchdog abaixo decide se a gravação
+        // esta viva pela CHEGADA de bytes; com pedaços de 1s o primeiro só vinha
+        // perto do limite dele, e num encoder mais lento (perfil High, bitrate
+        // alto, celular) passava do limite — a gravação estava boa e mesmo assim
+        // era abortada. Pedaço curto = prova de vida cedo.
+        rec.start(250);
 
         uiStart();
 
-        // ── watchdog: se em 2.2s nao chegou NENHUM byte, o formato escolhido
-        // esta falhando calado (visto dentro da Central com MP4/H264+AAC).
-        // Troca pra WEBM sozinho, sem o usuario precisar perceber ou refazer
-        // do zero — so um leve solavanco no comecinho da gravacao.
+        // ── watchdog: se nao chegou NENHUM byte, o formato escolhido esta
+        // falhando calado. ANTES ele pulava direto pro WEBM, e como o WhatsApp
+        // recusa WEBM o resultado era o erro que aparecia "de vez em quando" no
+        // celular — dependia de o encoder entregar o 1o pedaço a tempo, o que e
+        // uma corrida. Agora ele primeiro tenta o PROXIMO formato MP4 da lista,
+        // e so cai pro WEBM depois de esgotar as opcoes de MP4.
         clearTimeout(watchdogT);
-        if (!restarted) {
+        if (!restarted && tentativaMime < MAX_TENTATIVAS) {
           watchdogT = setTimeout(function(){
             if (gotData || !rec || rec.state !== 'recording') return; // ja esta tudo bem
-            restarted = true;
             var oldRec = rec; oldRec.onstop = null; oldRec.ondataavailable = null;
             try { oldRec.stop(); } catch(e) {}
             if (timer) { clearInterval(timer); timer = null; }
+            var proximo = listaAtual[tentativaMime + 1] || '';
+            tentativaMime++;
+            var vaiPraWebm = !proximo || proximo.indexOf('mp4') === -1;
+            diagSet('watchdog', 'o formato "' + (mime || 'padrão') + '" não produziu dados em 4s; trocando para ' +
+                    (vaiPraWebm ? 'WEBM' : proximo));
             flash('Ajustando o formato de gravação…', 1600);
-            start(true); // recomeça já forçando WEBM
-          }, 2200);
+            if (vaiPraWebm) { restarted = true; start(true); }
+            else start(preferWebm);   // proxima opcao de MP4, antes de desistir
+          }, 4000);
         }
       }
 
@@ -1724,7 +1749,13 @@ var ACN3D = (function() {
       }
 
       btn.addEventListener('click', function() {
-        if (rec && rec.state === 'recording') stop(); else start();
+        if (rec && rec.state === 'recording') { stop(); return; }
+        // Gravacao NOVA (iniciada pelo usuario): zera o estado do watchdog pra
+        // ela comecar de novo pelo melhor formato. Sem isto, uma unica troca de
+        // formato numa gravacao antiga condenava todas as seguintes da sessao a
+        // pular o watchdog e/ou comecar de um formato pior.
+        tentativaMime = 0; restarted = false;
+        start();
       });
     })();
 
