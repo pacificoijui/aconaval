@@ -858,6 +858,7 @@ var ACN3D = (function() {
       if (destroyed) return;
       rafId = requestAnimationFrame(animate);
       controls.update();
+      if (typeof processarPonteiro === 'function') processarPonteiro();
       renderer.render(scene, camera);
     }
     animate();
@@ -994,16 +995,28 @@ var ACN3D = (function() {
       return ponteiro;
     }
 
-    // Coloca o ponteiro no ponto da peca que esta sob o dedo/mouse
+    // Coloca o ponteiro no ponto da peca que esta sob o dedo/mouse.
+    //
+    // O raycast NAO roda no evento do mouse. 'pointermove' dispara 60-120x por
+    // segundo e cada raycast percorre a malha inteira do modelo — fazer isso
+    // por evento, no meio da gravacao, era o que causava as micro-travadas.
+    // Aqui o evento so anota a posicao; o calculo acontece no maximo uma vez
+    // por quadro, junto com o resto do desenho.
     var ponteiroRay = new THREE.Raycaster();
+    var ponteiroPend = null;
     function moverPonteiro(clientX, clientY) {
       if (!ponteiroAtivo) return;
+      ponteiroPend = { x: clientX, y: clientY };
+    }
+    function processarPonteiro() {
+      if (!ponteiroPend || !ponteiroAtivo) return;
+      var pos = ponteiroPend; ponteiroPend = null;
       var p = criarPonteiro();
       var rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       var m = new THREE.Vector2(
-        ((clientX - rect.left) / rect.width)  * 2 - 1,
-       -((clientY - rect.top)  / rect.height) * 2 + 1
+        ((pos.x - rect.left) / rect.width)  * 2 - 1,
+       -((pos.y - rect.top)  / rect.height) * 2 + 1
       );
       ponteiroRay.setFromCamera(m, camera);
       var hits = ponteiroRay.intersectObjects(scene.children, true);
@@ -1021,7 +1034,7 @@ var ACN3D = (function() {
     }
     canvas.addEventListener('pointermove', function(e){ moverPonteiro(e.clientX, e.clientY); });
     canvas.addEventListener('pointerdown', function(e){ moverPonteiro(e.clientX, e.clientY); });
-    canvas.addEventListener('pointerleave', function(){ if (ponteiro) ponteiro.visible = false; });
+    canvas.addEventListener('pointerleave', function(){ ponteiroPend = null; if (ponteiro) ponteiro.visible = false; });
 
     function setPonteiroAtivo(on) {
       ponteiroAtivo = on;
@@ -1078,6 +1091,10 @@ var ACN3D = (function() {
       // laço sem saída (aparecia principalmente dentro da Central).
       var wcFalhou = false;
       var audioCtx = null, srcNode = null, destNode = null, keepGain = null;
+      // vozOut = ultimo no da cadeia de tratamento da voz. Tudo que consome o
+      // audio (o stream gravado e o encoder do WebCodecs) tem que sair DAQUI,
+      // nao do microfone cru, senao o tratamento nao entra no video.
+      var vozOut = null, vozNodes = [];
       var origPR = renderer.getPixelRatio();
       var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
                      (navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.userAgent));
@@ -1098,7 +1115,7 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-15-nivel-h264';
+      var GRAVADOR_VERSAO = '2026-08-15-muxer-voz';
 
       var diag = {};
       function diagSet(k, v) { diag[k] = v; }
@@ -1218,11 +1235,63 @@ var ACN3D = (function() {
       function stopTracks() {
         try { if (srcNode) srcNode.disconnect(); } catch(e) {}
         try { if (keepGain) keepGain.disconnect(); } catch(e) {}
+        // Desliga tambem os nos do tratamento de voz — senao eles ficariam
+        // pendurados no contexto a cada gravacao.
+        vozNodes.forEach(function(n){ try { n.disconnect(); } catch(e) {} });
+        vozNodes = []; vozOut = null;
         try { if (audioCtx && audioCtx.state !== 'closed') audioCtx.close(); } catch(e) {}
         srcNode = null; destNode = null; keepGain = null; audioCtx = null;
         if (micStream) { micStream.getTracks().forEach(function(t){ t.stop(); }); micStream = null; }
         mixStream = null;
         boostResolution(false);
+      }
+
+      // ── TRATAMENTO DA VOZ (equalizador + compressor) ───────────────────
+      // Tudo com nos nativos do Web Audio: roda na thread de audio, entao nao
+      // rouba quadro do 3D nem causa travada. A cadeia e a mesma que se usa
+      // pra locucao: tira o que suja, realca o que da inteligibilidade e
+      // nivela o volume.
+      function montarCadeiaVoz(entrada) {
+        vozNodes = [];
+        try {
+          // 1) Corta o grave que so carrega ruido: mesa batendo, ar-
+          //    condicionado, sopro. Nada de voz util mora abaixo de ~85 Hz.
+          var hp = audioCtx.createBiquadFilter();
+          hp.type = 'highpass'; hp.frequency.value = 85; hp.Q.value = 0.7;
+
+          // 2) Tira um pouco do "abafado"/embolado da regiao de 250-350 Hz,
+          //    que e onde a voz masculina costuma soar barrenta perto do mic.
+          var mud = audioCtx.createBiquadFilter();
+          mud.type = 'peaking'; mud.frequency.value = 300; mud.Q.value = 1.0; mud.gain.value = -3;
+
+          // 3) Realca a presenca (~3,5 kHz): e a faixa que faz a palavra ser
+          //    entendida no alto-falante pequeno do celular.
+          var pres = audioCtx.createBiquadFilter();
+          pres.type = 'peaking'; pres.frequency.value = 3500; pres.Q.value = 0.9; pres.gain.value = 4;
+
+          // 4) Um brilho leve no agudo, sem chiar.
+          var ar = audioCtx.createBiquadFilter();
+          ar.type = 'highshelf'; ar.frequency.value = 9000; ar.gain.value = 2;
+
+          // 5) Compressor: aproxima o alto do baixo. Sem ele, a parte falada
+          //    de perto estoura e a de longe some.
+          var comp = audioCtx.createDynamicsCompressor();
+          comp.threshold.value = -26; comp.knee.value = 24;
+          comp.ratio.value = 4;       comp.attack.value = 0.006; comp.release.value = 0.18;
+
+          // 6) Ganho de compensacao: o compressor derruba o volume geral.
+          var makeup = audioCtx.createGain(); makeup.gain.value = 1.7;
+
+          entrada.connect(hp); hp.connect(mud); mud.connect(pres);
+          pres.connect(ar); ar.connect(comp); comp.connect(makeup);
+          vozNodes = [hp, mud, pres, ar, comp, makeup];
+          return makeup;
+        } catch(e) {
+          // Se algum no nao existir no aparelho, grava a voz crua — melhor
+          // sem tratamento do que sem audio.
+          vozNodes = [];
+          return entrada;
+        }
       }
 
       hardStopRec = function() {
@@ -1236,8 +1305,12 @@ var ACN3D = (function() {
         // reaproveita o microfone/stream ja abertos quando possivel.
         if (!mixStream) {
           try {
+            // autoGainControl DESLIGADO de proposito: o controle automatico do
+            // navegador fica subindo e descendo o volume por conta propria e
+            // briga com o compressor da cadeia de voz, causando aquele efeito
+            // de "bombeamento". O nivelamento agora e feito por nos.
             micStream = await navigator.mediaDevices.getUserMedia({
-              audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false });
+              audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:false }, video:false });
           } catch(e) {
             flash('🎤 Nao consegui acessar o microfone. Autorize o uso do microfone e tente de novo.', 5000);
             return;
@@ -1252,12 +1325,13 @@ var ACN3D = (function() {
               if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch(e) {} }
               srcNode  = audioCtx.createMediaStreamSource(micStream);
               destNode = audioCtx.createMediaStreamDestination();
-              srcNode.connect(destNode);
+              vozOut   = montarCadeiaVoz(srcNode);
+              vozOut.connect(destNode);
               // Mantem o grafo de audio "rodando" no iOS — sem isto o destino sai MUDO.
               // Ganho 0 → nao gera microfonia/eco nos alto-falantes.
               keepGain = audioCtx.createGain();
               keepGain.gain.value = 0;
-              srcNode.connect(keepGain);
+              vozOut.connect(keepGain);
               keepGain.connect(audioCtx.destination);
               if (destNode.stream.getAudioTracks().length) micTrack = destNode.stream.getAudioTracks()[0];
             }
@@ -1432,18 +1506,32 @@ var ACN3D = (function() {
             target: new Mp4Muxer.ArrayBufferTarget(),
             video: { codec: 'avc', width: w2, height: h2 },
             audio: { codec: 'aac', sampleRate: sr, numberOfChannels: 1 },
-            fastStart: 'in-memory'
+            fastStart: 'in-memory',
+            // 'offset' e OBRIGATORIO aqui. O padrao da biblioteca e 'strict',
+            // que ESTOURA se o primeiro quadro nao tiver timestamp exatamente 0
+            // — e o nosso comeca em ~33ms (o intervalo de 30fps so dispara
+            // depois do primeiro tick). Era exatamente isso que fazia a
+            // montagem do MP4 falhar na Central, com tudo o mais funcionando:
+            // encoder configurado, gravacao rodando, e o arquivo morrendo no
+            // finalize. 'offset' normaliza o inicio para zero sozinho.
+            firstTimestampBehavior: 'offset'
           });
 
-          var falhou = false;
+          var falhou = false, erroMux = '';
+          // Guarda o motivo real da falha: sem isso o diagnostico so dizia
+          // "a montagem do MP4 FALHOU", sem dizer por que.
+          function marcaFalha(e, onde) {
+            falhou = true;
+            if (!erroMux) erroMux = onde + ': ' + ((e && (e.message || e.name)) || e || 'erro desconhecido');
+          }
           var vEnc = new VideoEncoder({
-            output: function(chunk, meta){ try { muxer.addVideoChunk(chunk, meta); } catch(e) { falhou = true; } },
-            error:  function(){ falhou = true; }
+            output: function(chunk, meta){ try { muxer.addVideoChunk(chunk, meta); } catch(e) { marcaFalha(e, 'vídeo/muxer'); } },
+            error:  function(e){ marcaFalha(e, 'encoder de vídeo'); }
           });
           vEnc.configure(vCfg);
           var aEnc = new AudioEncoder({
-            output: function(chunk, meta){ try { muxer.addAudioChunk(chunk, meta); } catch(e) { falhou = true; } },
-            error:  function(){ falhou = true; }
+            output: function(chunk, meta){ try { muxer.addAudioChunk(chunk, meta); } catch(e) { marcaFalha(e, 'áudio/muxer'); } },
+            error:  function(e){ marcaFalha(e, 'encoder de áudio'); }
           });
           aEnc.configure(aCfg);
 
@@ -1462,10 +1550,13 @@ var ACN3D = (function() {
                 timestamp: Math.round(aSamples / sr * 1e6),
                 data: data
               }));
-            } catch(e) { falhou = true; }
+            } catch(e) { marcaFalha(e, 'codificação de áudio'); }
             aSamples += data.length;
           };
-          srcNode.connect(spn); spn.connect(mute); mute.connect(audioCtx.destination);
+          // Liga no FIM da cadeia de voz (vozOut), nao no microfone cru: senao
+          // o MP4 do WebCodecs sairia sem o equalizador/compressor, com som
+          // diferente do gerado pelo outro caminho de gravacao.
+          (vozOut || srcNode).connect(spn); spn.connect(mute); mute.connect(audioCtx.destination);
 
           // Vídeo: ~30 fps a partir do canvas do Three.js
           var vT0 = performance.now(), vIdx = 0, vInt = null;
@@ -1477,7 +1568,7 @@ var ACN3D = (function() {
               var fr = new VideoFrame(oc, { timestamp: Math.round((performance.now() - vT0) * 1000) });
               vEnc.encode(fr, { keyFrame: (vIdx % 60) === 0 });
               fr.close(); vIdx++;
-            } catch(e) { falhou = true; }
+            } catch(e) { marcaFalha(e, 'codificação de vídeo'); }
           }, 1000 / 30);
 
           var parado = false;
@@ -1498,12 +1589,13 @@ var ACN3D = (function() {
                   try { vEnc.close(); aEnc.close(); } catch(e) {}
                   muxer.finalize();
                   blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
-                } catch(e) { falhou = true; }
+                } catch(e) { marcaFalha(e, 'finalização do MP4'); }
                 stopTracks(); resetUI(); controls.autoRotate = !userStopped; rec = null;
                 if (destroyed) return;
                 if (falhou || !blob || !blob.size) {
                   wcFalhou = true;   // a promessa abaixo agora é cumprida de verdade
                   diagSet('gravado por', 'WebCodecs — mas a montagem do MP4 FALHOU');
+                  diagSet('motivo da falha', erroMux || (blob ? 'arquivo saiu vazio' : 'não gerou arquivo'));
                   btnDiag.style.display = 'flex';
                   flash('Não consegui montar o MP4 neste aparelho. Grave de novo — desta vez vou usar o formato alternativo.', 6000);
                   return;
