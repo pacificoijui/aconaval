@@ -967,16 +967,14 @@ var ACN3D = (function() {
 
     function criarPonteiro() {
       if (ponteiro) return ponteiro;
-      // Anel vermelho com contorno branco: fica legivel tanto em peca escura
-      // (preto fosco) quanto em superficie clara.
+      // Pontinho vermelho discreto, com um halo branco bem fino em volta —
+      // o halo nao chama atencao, so garante que o ponto nao se perca quando
+      // a peca embaixo tambem for escura/avermelhada.
       var c = document.createElement('canvas'); c.width = c.height = 128;
       var g = c.getContext('2d');
       g.clearRect(0, 0, 128, 128);
-      g.lineWidth = 10;
-      g.strokeStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.arc(64, 64, 40, 0, Math.PI*2); g.stroke();
-      g.strokeStyle = 'rgba(224,53,43,1)';     g.beginPath(); g.arc(64, 64, 40, 0, Math.PI*2); g.lineWidth = 7; g.stroke();
-      g.fillStyle   = 'rgba(224,53,43,.92)';   g.beginPath(); g.arc(64, 64, 13, 0, Math.PI*2); g.fill();
-      g.fillStyle   = 'rgba(255,255,255,.95)'; g.beginPath(); g.arc(64, 64, 6,  0, Math.PI*2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.75)'; g.beginPath(); g.arc(64, 64, 30, 0, Math.PI*2); g.fill();
+      g.fillStyle = 'rgba(214,40,32,1)';     g.beginPath(); g.arc(64, 64, 23, 0, Math.PI*2); g.fill();
       var tex = new THREE.CanvasTexture(c);
       // O renderer usa outputEncoding sRGB. Sem marcar a textura como sRGB
       // tambem, ela e tratada como dado linear e convertida na saida — o
@@ -987,9 +985,9 @@ var ACN3D = (function() {
         sizeAttenuation: false            // tamanho constante na tela, perto ou longe
       });
       ponteiro = new THREE.Sprite(mat);
-      // Tamanho: grande o bastante pra sobreviver a recompressao do WhatsApp,
-      // mas com o meio vazado — ele CERCA o detalhe apontado em vez de cobrir.
-      ponteiro.scale.set(0.13, 0.13, 1);
+      // Discreto: so um pontinho, o suficiente pra guiar o olho do cliente
+      // sem tapar a peca.
+      ponteiro.scale.set(0.055, 0.055, 1);
       ponteiro.renderOrder = 9999;        // sempre por cima da peca
       ponteiro.visible = false;
       scene.add(ponteiro);
@@ -1100,7 +1098,7 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-15-ponteiro';
+      var GRAVADOR_VERSAO = '2026-08-15-nivel-h264';
 
       var diag = {};
       function diagSet(k, v) { diag[k] = v; }
@@ -1145,8 +1143,15 @@ var ACN3D = (function() {
         // com aparência "lavada"/quadriculada no mesmo bitrate. High 4.0 é
         // decodificado por qualquer aparelho atual e pelo WhatsApp; Baseline
         // fica só como última rede de segurança pra aparelho antigo.
-        var mp4 = ['video/mp4;codecs=avc1.640028,mp4a.40.2',  // High 4.0
-                   'video/mp4;codecs=avc1.4D0028,mp4a.40.2',  // Main 4.0
+        // ATENCAO AO NIVEL (os 2 ultimos digitos), nao so ao perfil: ele limita
+        // o TAMANHO do quadro. Nivel 4.0 (…28) aceita no maximo 8192
+        // macroblocos = ~1920x1080; a gravacao aqui e ~1920x1440 (10800
+        // macroblocos) e precisa de nivel 5.0 (…32) pra cima. Pedir High 4.0
+        // com esse tamanho fazia a gravacao simplesmente nao sair.
+        var mp4 = ['video/mp4;codecs=avc1.640033,mp4a.40.2',  // High 5.1
+                   'video/mp4;codecs=avc1.640032,mp4a.40.2',  // High 5.0
+                   'video/mp4;codecs=avc1.4D0032,mp4a.40.2',  // Main 5.0
+                   'video/mp4;codecs=avc1.640028,mp4a.40.2',  // High 4.0
                    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',  // Baseline 3.0
                    'video/mp4;codecs=avc1,mp4a.40.2',
                    'video/mp4;codecs=h264,aac'];
@@ -1184,15 +1189,25 @@ var ACN3D = (function() {
           if (on) {
             var w = container.clientWidth || 300, h = container.clientHeight || 300;
             var longSide = Math.max(w, h) || 300;
-            // Alvo ~1920px no lado maior (era 1600). O vídeo é gravado no
-            // tamanho do canvas, então esta é a resolução final do arquivo —
-            // e o WhatsApp ainda recomprime por cima, então vale entregar com
-            // folga.
-            // O teto existe pra não explodir a GPU de aparelho fraco, mas em 4x
-            // ELE é que mandava: um container de 400px parava em 1600 e o alvo
-            // nunca era atingido. Em 6x um container de 320px já chega nos
-            // 1920 (1920x1440 ≈ 11 MB de buffer — tranquilo em celular atual).
+            // Alvo ~1920px no lado maior. O vídeo é gravado no tamanho do
+            // canvas, então esta é a resolução final do arquivo.
             var pr = Math.min(6, Math.max(origPR, 1920 / longSide));
+
+            // TETO POR NUMERO DE PIXELS — nao e enfeite, e o que faz a gravacao
+            // existir. O H.264 limita o tamanho do quadro por NIVEL: o nivel
+            // 4.0, que e o unico que da pra contar em qualquer aparelho, aceita
+            // 8192 macroblocos (16x16) = 2.097.152 pixels. Um container 4:3
+            // levaria o alvo de 1920 a 1920x1440 = 2.764.800 pixels, acima
+            // desse limite — e af o encoder simplesmente nao grava nada.
+            // Entao a resolucao e reduzida ate caber. Em container 16:9 isso
+            // nem chega a agir (1920x1080 ja cabe); em 4:3 para em ~1645x1235.
+            // O 0.97 e margem pro arredondamento: o quadro e contado em
+            // macroblocos INTEIROS por eixo, entao usar o limite cheio de
+            // pixels ainda estourava (1672x1254 dava 8295 macroblocos).
+            var MAX_PIX = 8192 * 256 * 0.97;
+            var pix = (w * pr) * (h * pr);
+            if (pix > MAX_PIX) pr = pr * Math.sqrt(MAX_PIX / pix);
+
             renderer.setPixelRatio(pr);
           } else {
             renderer.setPixelRatio(origPR);
@@ -1388,7 +1403,11 @@ var ACN3D = (function() {
 
           // Encoder de vídeo: tenta perfis do mais capaz ao mais básico
           var vCfg = null;
-          var candidatos = ['avc1.640028','avc1.4D4028','avc1.42E028','avc1.42E01F','avc1.42E01E'];
+          // Mesmo cuidado do pickMime: o nivel precisa comportar ~1920x1440.
+          // Os niveis 5.x vem primeiro; os 4.x/3.x ficam de reserva pra
+          // gravacao menor ou aparelho que so aceite eles.
+          var candidatos = ['avc1.640033','avc1.640032','avc1.4D0032',
+                            'avc1.640028','avc1.4D4028','avc1.42E028','avc1.42E01F','avc1.42E01E'];
           for (var i = 0; i < candidatos.length; i++) {
             var cfg = { codec: candidatos[i], width: w2, height: h2,
                         bitrate: 12000000, framerate: 30, avc: { format: 'avc' } };
@@ -1513,6 +1532,10 @@ var ACN3D = (function() {
         var ext  = mime.indexOf('mp4') > -1 ? 'mp4' : 'webm';
         diagSet('gravado por', 'MediaRecorder');
         diagSet('formato real do MediaRecorder', mime);
+        // Tamanho do quadro entra no relatorio porque ele decide se o nivel do
+        // H.264 aguenta a gravacao — quadro grande demais faz sair vazio.
+        diagSet('tamanho do quadro', canvas.width + 'x' + canvas.height +
+                ' (' + Math.ceil(canvas.width/16)*Math.ceil(canvas.height/16) + ' macroblocos)');
         var blob = new Blob(chunks, { type: (mime.split(';')[0] || 'video/webm') });
         stopTracks(); resetUI(); controls.autoRotate = !userStopped;
         if (destroyed) return;
