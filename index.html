@@ -1007,12 +1007,26 @@ function buscaDebounced() {
   clearTimeout(_buscaTimer);
   _buscaTimer = setTimeout(renderCatalog, 180);
 }
+// Ordena os produtos seguindo a mesma ordem de categorias definida no admin
+// (arrastar em "Categorias e Filtros"), usada nos chips de "Todos". Categoria
+// que ainda não foi organizada lá entra no fim, na ordem em que apareceu.
+// Dentro de cada categoria os produtos mantêm a ordem original (sort estável).
+function ordenarPorCategoria(lista) {
+  if (!categoriasOrdem.length) return lista;
+  const pos = c => { const i = categoriasOrdem.indexOf(c); return i === -1 ? categoriasOrdem.length : i; };
+  return lista
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => (pos(a.p.cat) - pos(b.p.cat)) || (a.i - b.i))
+    .map(x => x.p);
+}
+
 function renderCatalog() {
   const search = (document.getElementById('search-input').value || '').toLowerCase();
   const grid = document.getElementById('product-grid');
 
   let filtered = produtos.filter(p => !isCano(p));
   if (filtroAtivo !== 'Todos') filtered = filtered.filter(p => p.cat === filtroAtivo);
+  else filtered = ordenarPorCategoria(filtered);
   // Filtros dinâmicos da categoria (Posição, Tamanho, Tipo...)
   Object.entries(subFiltros).forEach(([nome, val]) => {
     if (val) filtered = filtered.filter(p => p.filtros && p.filtros[nome] === val);
