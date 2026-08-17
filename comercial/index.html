@@ -3623,6 +3623,19 @@ function addValorFiltroForm(cat, nome){
   renderFiltrosDefPanel();
 }
 
+// Mesma ordem de categorias definida em "Categorias e Filtros" (é o que a
+// loja usa nos chips e agora na grade de "Todos os produtos"). Categoria
+// ainda não organizada lá entra no fim. Dentro de cada categoria os produtos
+// mantêm a ordem de cadastro/arraste (sort estável).
+function ordenarPorCategoria(lista) {
+  if (!categorias.length) return [...lista];
+  const pos = c => { const i = categorias.indexOf(c); return i === -1 ? categorias.length : i; };
+  return lista
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => (pos(a.p.cat) - pos(b.p.cat)) || (a.i - b.i))
+    .map(x => x.p);
+}
+
 function renderProdutos() {
   /* ── Chips de categoria ── */
   const cats = [...new Set(produtos.map(p=>p.cat).filter(Boolean))];
@@ -3632,7 +3645,7 @@ function renderProdutos() {
 
   /* ── Lista filtrada por categoria (variações ficam aninhadas, fora do topo) ── */
   const busca = (document.getElementById('prod-search')?.value||'').toLowerCase();
-  let lista = filtroCategoria ? produtos.filter(p => p.cat === filtroCategoria) : [...produtos];
+  let lista = filtroCategoria ? produtos.filter(p => p.cat === filtroCategoria) : ordenarPorCategoria(produtos);
 
   /* ── Subfilters dinâmicos (filtros com valores da categoria) ── */
   const sw = document.getElementById('subfilters-wrap');
