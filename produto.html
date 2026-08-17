@@ -1119,7 +1119,34 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-15-formato-estavel';
+      var GRAVADOR_VERSAO = '2026-08-17-leve-e-nitido';
+
+      // ── ALVO DA GRAVAÇÃO: "leve o bastante pro WhatsApp não reprocessar" ──
+      // O que fazia o vídeo chegar BORRADO no WhatsApp era, contra a intuição,
+      // gravar com qualidade ALTA DEMAIS. Estava saindo ~1920px a 12-16 Mbps:
+      // um minuto disso dá 90-120 MB. O WhatsApp não envia um arquivo desse
+      // tamanho como vídeo — ele RECOMPRIME com força até caber, e é essa
+      // recompressão de emergência que devolve a imagem borrada. Ou seja: o
+      // arquivo era pesado E chegava ruim, as duas queixas pela mesma causa.
+      //
+      // A gravação de tela do Windows parece melhor no WhatsApp exatamente por
+      // gravar mais leve: o arquivo já chega dentro do limite e o WhatsApp
+      // quase não mexe nele.
+      //
+      // Então o alvo aqui é o mesmo: entregar um arquivo que já cabe.
+      //  - 1280x720 em vez de 1920: é o tamanho que o WhatsApp preserva de
+      //    qualquer jeito. Mandar 1920 só gasta bits que ele vai jogar fora ao
+      //    reduzir — e ainda tira bits de onde faz falta.
+      //  - ~2,8 Mbps em vez de 12-16: ~21 MB por minuto em vez de ~90-120 MB.
+      //  - a nitidez que se perde no papel volta (e sobra) porque o arquivo
+      //    passa direto, sem a recompressão que estragava tudo.
+      // Bônus: 1280x720 = 3600 macroblocos, MUITO abaixo do limite de qualquer
+      // nível do H.264 — some de vez a classe de bug em que o quadro grande
+      // demais fazia a gravação sair vazia.
+      var ALVO_LADO_MAIOR = 1280;
+      var ALVO_PIXELS     = 1280 * 720;
+      var BITRATE_VIDEO   = 2800000;
+      var BITRATE_AUDIO   = 96000;    // AAC mono: de sobra pra voz falada
 
       var diag = {};
       function diagSet(k, v) { diag[k] = v; }
@@ -1168,10 +1195,12 @@ var ACN3D = (function() {
         // decodificado por qualquer aparelho atual e pelo WhatsApp; Baseline
         // fica só como última rede de segurança pra aparelho antigo.
         // ATENCAO AO NIVEL (os 2 ultimos digitos), nao so ao perfil: ele limita
-        // o TAMANHO do quadro. Nivel 4.0 (…28) aceita no maximo 8192
-        // macroblocos = ~1920x1080; a gravacao aqui e ~1920x1440 (10800
-        // macroblocos) e precisa de nivel 5.0 (…32) pra cima. Pedir High 4.0
-        // com esse tamanho fazia a gravacao simplesmente nao sair.
+        // o TAMANHO do quadro. Ja custou caro aqui — com a gravacao em
+        // ~1920x1440 (10800 macroblocos) pedir High 4.0 (…28, teto de 8192)
+        // fazia a gravacao simplesmente nao sair. Hoje a gravacao e 720p
+        // (3600 macroblocos) e cabe em qualquer um destes niveis com folga,
+        // mas a ordem continua do nivel maior pro menor pra nunca reencostar
+        // nesse teto se o alvo de resolucao subir de novo.
         var mp4 = ['video/mp4;codecs=avc1.640033,mp4a.40.2',  // High 5.1
                    'video/mp4;codecs=avc1.640032,mp4a.40.2',  // High 5.0
                    'video/mp4;codecs=avc1.4D0032,mp4a.40.2',  // Main 5.0
@@ -1218,22 +1247,19 @@ var ACN3D = (function() {
           if (on) {
             var w = container.clientWidth || 300, h = container.clientHeight || 300;
             var longSide = Math.max(w, h) || 300;
-            // Alvo ~1920px no lado maior. O vídeo é gravado no tamanho do
-            // canvas, então esta é a resolução final do arquivo.
-            var pr = Math.min(6, Math.max(origPR, 1920 / longSide));
+            // Alvo no lado maior (ver ALVO_LADO_MAIOR): o vídeo é gravado no
+            // tamanho do canvas, então esta é a resolução final do arquivo.
+            var pr = Math.min(6, Math.max(origPR, ALVO_LADO_MAIOR / longSide));
 
-            // TETO POR NUMERO DE PIXELS — nao e enfeite, e o que faz a gravacao
-            // existir. O H.264 limita o tamanho do quadro por NIVEL: o nivel
-            // 4.0, que e o unico que da pra contar em qualquer aparelho, aceita
-            // 8192 macroblocos (16x16) = 2.097.152 pixels. Um container 4:3
-            // levaria o alvo de 1920 a 1920x1440 = 2.764.800 pixels, acima
-            // desse limite — e af o encoder simplesmente nao grava nada.
-            // Entao a resolucao e reduzida ate caber. Em container 16:9 isso
-            // nem chega a agir (1920x1080 ja cabe); em 4:3 para em ~1645x1235.
+            // TETO POR NUMERO DE PIXELS. Mantem o quadro na classe 720p mesmo
+            // quando o container nao e 16:9 — senao um container 4:3 esticaria
+            // o alvo de 1280 para 1280x960, que e 28% mais pixels dividindo o
+            // mesmo bitrate (imagem pior) e um arquivo maior. Em 16:9 isto nem
+            // chega a agir (1280x720 ja cabe); em 4:3 para em ~1108x831.
             // O 0.97 e margem pro arredondamento: o quadro e contado em
             // macroblocos INTEIROS por eixo, entao usar o limite cheio de
-            // pixels ainda estourava (1672x1254 dava 8295 macroblocos).
-            var MAX_PIX = 8192 * 256 * 0.97;
+            // pixels ainda podia estourar o alvo.
+            var MAX_PIX = ALVO_PIXELS * 0.97;
             var pix = (w * pr) * (h * pr);
             if (pix > MAX_PIX) pr = pr * Math.sqrt(MAX_PIX / pix);
 
@@ -1392,12 +1418,11 @@ var ACN3D = (function() {
         // MP4 (melhor compatibilidade), com WEBM so como plano B automatico.
         var listaAtual = listaMimes(preferWebm || inCentral);
         var mime = listaAtual[tentativaMime] || listaAtual[0] || '';
-        // Bitrate mais alto no celular (era 8 Mbps): a gravação agora sai em
-        // ~1920px e o WhatsApp recomprime por cima, então sair apertado daqui
-        // vira artefato visível no vídeo que o cliente recebe. Um vídeo de 1
-        // minuto a 12 Mbps dá ~90 MB, acima do limite do WhatsApp — por isso o
-        // aviso de tamanho continua valendo pra gravações longas.
-        var opt = { videoBitsPerSecond: (isMobile ? 12000000 : 16000000), audioBitsPerSecond: (isMobile ? 128000 : 256000) };
+        // Bitrate igual no celular e no PC, e MUITO menor que antes (era 12 e
+        // 16 Mbps). O destino do arquivo e o mesmo nos dois casos — a conversa
+        // do WhatsApp — e e ele quem manda no tamanho. Ver ALVO_LADO_MAIOR
+        // acima: gravar pesado fazia o WhatsApp recomprimir e devolver borrado.
+        var opt = { videoBitsPerSecond: BITRATE_VIDEO, audioBitsPerSecond: BITRATE_AUDIO };
         if (mime) opt.mimeType = mime;
         try {
           rec = new MediaRecorder(mixStream, opt);
@@ -1502,25 +1527,40 @@ var ACN3D = (function() {
 
           // Encoder de vídeo: tenta perfis do mais capaz ao mais básico
           var vCfg = null;
-          // Mesmo cuidado do pickMime: o nivel precisa comportar ~1920x1440.
-          // Os niveis 5.x vem primeiro; os 4.x/3.x ficam de reserva pra
-          // gravacao menor ou aparelho que so aceite eles.
+          // Perfis do mais capaz ao mais basico. Com a gravacao em 720p
+          // (3600 macroblocos) qualquer nivel daqui ja comporta o quadro — o
+          // aperto de nivel que existia com 1920x1440 acabou.
           var candidatos = ['avc1.640033','avc1.640032','avc1.4D0032',
                             'avc1.640028','avc1.4D4028','avc1.42E028','avc1.42E01F','avc1.42E01E'];
-          for (var i = 0; i < candidatos.length; i++) {
-            var cfg = { codec: candidatos[i], width: w2, height: h2,
-                        bitrate: 12000000, framerate: 30, avc: { format: 'avc' } };
-            try {
-              var sup = await VideoEncoder.isConfigSupported(cfg);
-              if (sup && sup.supported) { vCfg = cfg; break; }
-            } catch(e) {}
+          // Aqui esta o maior ganho de nitidez POR BIT deste caminho. O padrao
+          // do WebCodecs e latencyMode 'realtime', pensado pra chamada de
+          // video: sem lookahead e sem B-frames, porque nao pode atrasar um
+          // quadro sequer. Gravacao nao tem essa pressa — 'quality' libera o
+          // encoder pra olhar adiante e gastar os bits onde a imagem precisa.
+          // 'variable' (VBR) completa: o modelo parado enquanto voce narra
+          // passa a custar quase nada e sobra bitrate pro momento em que ele
+          // gira. Aparelho que nao aceitar esses dois campos cai na segunda
+          // passada, sem eles.
+          var modos = [{ latencyMode: 'quality', bitrateMode: 'variable' }, {}];
+          for (var mi = 0; mi < modos.length && !vCfg; mi++) {
+            for (var i = 0; i < candidatos.length; i++) {
+              var cfg = { codec: candidatos[i], width: w2, height: h2,
+                          bitrate: BITRATE_VIDEO, framerate: 30, avc: { format: 'avc' } };
+              for (var k in modos[mi]) cfg[k] = modos[mi][k];
+              try {
+                var sup = await VideoEncoder.isConfigSupported(cfg);
+                if (sup && sup.supported) { vCfg = cfg; break; }
+              } catch(e) {}
+            }
           }
           if (!vCfg) { diagSet('encoder H.264', 'NENHUM perfil aceito pelo aparelho (' + w2 + 'x' + h2 + ')'); return false; }
-          diagSet('encoder H.264', vCfg.codec + ' @ ' + w2 + 'x' + h2);
+          diagSet('encoder H.264', vCfg.codec + ' @ ' + w2 + 'x' + h2 + ' · ' +
+                  (Math.round(BITRATE_VIDEO / 1e5) / 10) + ' Mbps · ' +
+                  (vCfg.latencyMode || 'realtime') + '/' + (vCfg.bitrateMode || 'padrão'));
 
           // Encoder de áudio AAC (obrigatório: o WhatsApp não toca Opus em MP4)
           var sr = (audioCtx && audioCtx.sampleRate) || 48000;
-          var aCfg = { codec: 'mp4a.40.2', sampleRate: sr, numberOfChannels: 1, bitrate: 128000 };
+          var aCfg = { codec: 'mp4a.40.2', sampleRate: sr, numberOfChannels: 1, bitrate: BITRATE_AUDIO };
           try {
             var asup = await AudioEncoder.isConfigSupported(aCfg);
             if (!asup || !asup.supported) { diagSet('encoder AAC', 'NÃO suportado pelo aparelho'); return false; }
@@ -1591,7 +1631,12 @@ var ACN3D = (function() {
               octx.drawImage(canvas, 0, 0, w2, h2);
               if (vEnc.encodeQueueSize > 8) return;    // encoder atolado: pula o frame
               var fr = new VideoFrame(oc, { timestamp: Math.round((performance.now() - vT0) * 1000) });
-              vEnc.encode(fr, { keyFrame: (vIdx % 60) === 0 });
+              // Quadro-chave a cada 4s (eram 2s). Quadro-chave e o quadro
+              // "inteiro", varias vezes mais caro que os outros — mandar
+              // metade deles sobra bitrate pro resto da imagem, sem prejuizo
+              // pra quem so assiste (4s e o intervalo usado em video sob
+              // demanda em geral).
+              vEnc.encode(fr, { keyFrame: (vIdx % 120) === 0 });
               fr.close(); vIdx++;
             } catch(e) { marcaFalha(e, 'codificação de vídeo'); }
           }, 1000 / 30);
@@ -1674,7 +1719,23 @@ var ACN3D = (function() {
         var nome = base + '.' + ext;
         var file = new File([blob], nome, { type: blob.type });
 
-        diagSet('arquivo gerado', nome + ' · ' + (blob.type || '(sem tipo)') + ' · ' + Math.round(blob.size/1024) + ' KB');
+        var mb = blob.size / 1048576;
+        var tamTxt = mb >= 1 ? (Math.round(mb * 10) / 10) + ' MB' : Math.round(blob.size / 1024) + ' KB';
+        var segs = Math.max(1, Math.round((Date.now() - t0) / 1000));
+        // Bitrate REAL medido (nao o pedido): com VBR o encoder gasta menos que
+        // o teto quando a cena esta parada, entao e este numero que diz quanto
+        // tempo ainda cabe no limite do WhatsApp.
+        diagSet('arquivo gerado', nome + ' · ' + (blob.type || '(sem tipo)') + ' · ' + tamTxt +
+                ' · ' + segs + 's · ' + (Math.round(blob.size * 8 / segs / 1e5) / 10) + ' Mbps reais');
+
+        // O WhatsApp so manda como VIDEO ate ~16 MB. Acima disso ele recomprime
+        // com forca — e era exatamente isso que devolvia a imagem borrada. Com
+        // a gravacao ja saindo leve isso so acontece em video longo, e af o
+        // recado util e "grave mais curto", nao "deu erro de formato".
+        var pesado = blob.size > 15 * 1024 * 1024;
+        var avisoPesado = pesado
+          ? ' ⚠️ Ficou em ' + tamTxt + ': acima de ~16 MB o WhatsApp recomprime e borra. Grave mais curto pra manter a nitidez.'
+          : '';
         try {
           diagSet('navigator.share', !navigator.share ? 'não existe neste navegador'
             : (!navigator.canShare ? 'existe, mas sem canShare'
@@ -1696,16 +1757,11 @@ var ACN3D = (function() {
               // WEBM o WhatsApp recusa com "formato não compatível", e a
               // mensagem antiga mandava arrastar assim mesmo.
               flash(ext === 'mp4'
-                ? '✅ Vídeo salvo nos downloads da Central! É só arrastar pra conversa do WhatsApp.'
+                ? '✅ Vídeo salvo nos downloads da Central (' + tamTxt + ')! É só arrastar pra conversa do WhatsApp.' + avisoPesado
                 : '⚠️ Vídeo salvo nos downloads da Central, mas em WEBM — o WhatsApp não aceita esse formato como vídeo. Envie pelo clipe 📎 como Documento, ou converta para MP4 antes.', 9000);
               return;
             }
           } catch(e) { /* qualquer falha aqui -> cai no download normal abaixo */ }
-        }
-
-        // Aviso de tamanho: o WhatsApp recusa vídeos muito grandes (~64 MB)
-        if (isMobile && blob.size > 62*1024*1024) {
-          flash('⚠️ O vídeo ficou grande (' + Math.round(blob.size/1024/1024) + ' MB) — o WhatsApp pode recusar. Grave um vídeo mais curto se falhar.', 6000);
         }
 
         // CELULAR: folha de compartilhamento — SÓ com MP4. WEBM o WhatsApp
@@ -1718,7 +1774,7 @@ var ACN3D = (function() {
             // recebendo só o texto (ou recusando o conjunto).
             await navigator.share({ files:[file] });
             diagSet('resultado', 'folha de compartilhamento abriu normalmente');
-            flash('✅ Pronto! Escolha o WhatsApp na lista para enviar.', 3500);
+            flash('✅ Pronto (' + tamTxt + ')! Escolha o WhatsApp na lista para enviar.' + avisoPesado, pesado ? 9000 : 3500);
             return;
           } catch(e) {
             if (e && e.name === 'AbortError') { diagSet('resultado', 'você fechou a folha de compartilhamento'); return; }
@@ -1744,7 +1800,7 @@ var ACN3D = (function() {
             ? '📎 Seu aparelho não gera MP4 — o vídeo foi baixado em WEBM. No WhatsApp, use Anexar → Documento para enviá-lo (como vídeo o WhatsApp recusa WEBM).'
             : '📎 Este navegador não gera MP4 — o vídeo foi baixado em WEBM, que o WhatsApp não aceita como vídeo. Envie pelo clipe 📎 como Documento, converta para MP4, ou grave pelo Chrome/Edge.', 9000);
         } else {
-          flash('✅ Video baixado! Arraste o arquivo pra conversa do WhatsApp.', 5000);
+          flash('✅ Vídeo baixado (' + tamTxt + ')! Arraste o arquivo pra conversa do WhatsApp.' + avisoPesado, pesado ? 9000 : 5000);
         }
       }
 
