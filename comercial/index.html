@@ -1526,7 +1526,7 @@ async function save() {
     const orcSemFoto = orcamentos.map(function(orc) {
       return Object.assign({}, orc, {
         items: (orc.items || []).map(function(item) {
-          var i = Object.assign({}, item); delete i.foto; delete i.fotoProjetoCustom; return i;
+          var i = Object.assign({}, item); delete i.foto; delete i.fotosProjetoCustom; return i;
         })
       });
     });
@@ -3985,22 +3985,40 @@ function ladoChipsHtml(item, fn, idKey) {
 }
 // HTML do toggle "Projeto específico para este item" + upload da foto (orçamento e pedido).
 // fnToggle/fnFoto/fnRemove = nomes das funções de clique; idKey = item.id (orçamento) ou idx (pedido).
+// Uma linha POR PÁGINA do projeto do produto (fotosprojeto/fotosprojetoDir): cada
+// página pode ser substituída (ou não) independente das outras — dá pra trocar só a
+// página 2 de um kit com 3 páginas, por exemplo, sem mexer nas demais. Página sem
+// substituição continua mostrando a foto original do catálogo.
 function projetoCustomHtml(item, idKey, fnToggle, fnFoto, fnRemove) {
-  const inputId = 'projfoto-' + fnToggle + '-' + idKey;
+  const pr = prodDoItem(item);
+  const originais = (item.lado === 'Esquerda' && pr && Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length)
+    ? pr.fotosprojetoDir : ((pr && pr.fotosprojeto) || []);
+  const custom = Array.isArray(item.fotosProjetoCustom) ? item.fotosProjetoCustom : [];
+  const nPaginas = Math.max(originais.length, custom.length, 1);
+  let linhas = '';
+  for (let i = 0; i < nPaginas; i++) {
+    const foto = custom[i] || '';
+    const original = originais[i] || '';
+    const inputId = 'projfoto-' + fnToggle + '-' + idKey + '-' + i;
+    linhas += `
+      <div style="display:flex;align-items:center;gap:8px;padding:3px 0${i < nPaginas-1 ? ';border-bottom:1px dashed #e8e0d0' : ''}">
+        <span style="font-size:11px;font-weight:700;color:#8a6200;min-width:58px">Página ${i+1}</span>
+        ${(foto || original) ? `<img src="${foto || original}" style="width:32px;height:32px;object-fit:contain;border:1px solid #ddd;border-radius:4px;background:#fff"/>` : ''}
+        <input type="file" accept="image/*" id="${inputId}" style="display:none" onchange="${fnFoto}(${idKey}, ${i}, this)"/>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('${inputId}').click()" style="padding:2px 9px;font-size:11px">📷 ${foto ? 'Trocar' : 'Substituir esta página'}</button>
+        ${foto
+          ? `<button type="button" class="btn btn-ghost btn-sm" onclick="${fnRemove}(${idKey}, ${i})" style="padding:2px 8px;font-size:11px;color:#c0392b">↩ usar original</button>
+             <span style="font-size:10px;color:#8a6200;font-weight:700">✓ substituída</span>`
+          : (original ? '' : `<span style="font-size:11px;color:#A32D2D">⚠️ envie a foto</span>`)}
+      </div>`;
+  }
   return `
-    <div style="grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;background:${item.projetoCustom?'#FFF7E6':'#fafbfc'};border:1px dashed ${item.projetoCustom?'#E0B050':'#e0e4e8'};border-radius:6px">
+    <div style="grid-column:1 / -1;display:flex;flex-direction:column;gap:2px;padding:6px 10px;background:${item.projetoCustom?'#FFF7E6':'#fafbfc'};border:1px dashed ${item.projetoCustom?'#E0B050':'#e0e4e8'};border-radius:6px">
       <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:${item.projetoCustom?'#8a6200':'#666'};cursor:pointer">
         <input type="checkbox" ${item.projetoCustom?'checked':''} onchange="${fnToggle}(${idKey})"/>
-        📐 Projeto específico para este item
+        📐 Projeto específico para este item${nPaginas > 1 ? ` (${nPaginas} páginas — escolha quais substituir)` : ''}
       </label>
-      ${item.projetoCustom ? `
-        <input type="file" accept="image/*" id="${inputId}" style="display:none" onchange="${fnFoto}(${idKey}, this)"/>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('${inputId}').click()" style="padding:3px 10px;font-size:11.5px">📷 ${item.fotoProjetoCustom?'Trocar foto':'Enviar foto'}</button>
-        ${item.fotoProjetoCustom
-          ? `<img src="${item.fotoProjetoCustom}" style="width:36px;height:36px;object-fit:contain;border:1px solid #ddd;border-radius:4px;background:#fff"/>
-             <button type="button" class="btn btn-ghost btn-sm" onclick="${fnRemove}(${idKey})" style="padding:3px 8px;font-size:11.5px;color:#c0392b">remover foto</button>`
-          : `<span style="font-size:11px;color:#A32D2D">⚠️ envie a foto do projeto específico</span>`}
-      ` : ''}
+      ${item.projetoCustom ? linhas : ''}
     </div>`;
 }
 
@@ -4160,28 +4178,29 @@ function toggleProjetoCustom(id) {
   const item = items.find(i => i.id == id); if (!item) return;
   item.projetoCustom = !item.projetoCustom;
   if (!item.projetoCustom) {
-    item.fotoProjetoCustom = '';
-    salvarFotoProjetoItem(id, '').catch(()=>{});
+    item.fotosProjetoCustom = [];
+    salvarFotosProjetoItem(id, []).catch(()=>{});
   }
   renderItems(); updatePreview();
 }
-async function onProjetoCustomFotoChange(id, input) {
+async function onProjetoCustomFotoChange(id, pagina, input) {
   const file = input.files && input.files[0]; if (!file) return;
   if (file.size > 3 * 1024 * 1024) { alert('Foto muito grande. Use uma imagem até 3MB.'); input.value = ''; return; }
   const reader = new FileReader();
   const base64 = await new Promise(res => { reader.onload = ev => res(ev.target.result); reader.readAsDataURL(file); });
   const compressed = await comprimirFotoProjeto(base64);
   const item = items.find(i => i.id == id); if (!item) return;
-  item.fotoProjetoCustom = compressed;
+  if (!Array.isArray(item.fotosProjetoCustom)) item.fotosProjetoCustom = [];
+  item.fotosProjetoCustom[pagina] = compressed;
   input.value = '';
   renderItems(); updatePreview();
-  salvarFotoProjetoItem(id, compressed).catch(e => console.error('Erro ao salvar foto de projeto do item:', e));
+  salvarFotosProjetoItem(id, item.fotosProjetoCustom).catch(e => console.error('Erro ao salvar foto de projeto do item:', e));
 }
-function removeProjetoCustomFoto(id) {
+function removeProjetoCustomFoto(id, pagina) {
   const item = items.find(i => i.id == id); if (!item) return;
-  item.fotoProjetoCustom = '';
+  if (Array.isArray(item.fotosProjetoCustom)) item.fotosProjetoCustom[pagina] = '';
   renderItems(); updatePreview();
-  salvarFotoProjetoItem(id, '').catch(()=>{});
+  salvarFotosProjetoItem(id, item.fotosProjetoCustom || []).catch(()=>{});
 }
 function onPrecoChange(id, val) { const item = items.find(i=>i.id==id); if(item){item.preco=parseFloat(val)||0;updatePreview();} }
 function calcDesconto(sub, pctId, valId) {
@@ -4237,9 +4256,9 @@ function editarOrcamento(id) {
     // Preenche itens
     items = JSON.parse(JSON.stringify(o.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
     items.forEach(item => { if(!item.searchText) item.searchText = item.desc.split('\n')[0]; inferirLadoDaDesc(item); });
-    // Recupera a foto do projeto específico de cada item que tiver (acn_item_projetos/{id})
+    // Recupera as fotos de projeto específicas de cada item que tiver (acn_item_projetos/{id})
     await Promise.all(items.filter(i => i.projetoCustom).map(async it => {
-      it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || '';
+      it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
     }));
     // Restaurar desconto
     preencherCamposDesconto(o.desconto, o.subtotal, o.avistaVal, 'inp-desc-pct', 'inp-desc-val', 'inp-vista-final');
@@ -4266,7 +4285,7 @@ async function gerarOrcamento() {
   // do Firestore — fotos ficam na coleção acn_produtos (referenciadas por prodId)
   const itemsSemFoto = JSON.parse(JSON.stringify(validItems)).map(item => {
     delete item.foto;
-    delete item.fotoProjetoCustom;
+    delete item.fotosProjetoCustom;
     return item;
   });
 
@@ -4365,14 +4384,21 @@ function fotoDoItemLado(item) {
   return (item.lado === 'Esquerda' && pr.fotoDir) ? pr.fotoDir : (pr.foto || item.foto || '');
 }
 // Fotos do projeto respeitando o sentido (Esquerda usa o conjunto próprio, se houver).
-// Se o item tiver uma foto de projeto específica (projetoCustom), ela tem prioridade
-// sobre a foto do produto no catálogo — vale só para este item/pedido.
+// Se o item tiver projeto específico (projetoCustom), cada PÁGINA que tem substituta
+// (fotosProjetoCustom[i]) usa a substituta; página sem substituta continua mostrando
+// a foto original do produto — não é tudo-ou-nada.
 function fotosProjetoDoItemLado(item) {
-  if (item.projetoCustom) return item.fotoProjetoCustom ? [item.fotoProjetoCustom] : [];
   const pr = prodDoItem(item);
-  if (!pr) return [];
-  if (item.lado === 'Esquerda' && Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length) return pr.fotosprojetoDir;
-  return pr.fotosprojeto || [];
+  const originais = !pr ? [] :
+    (item.lado === 'Esquerda' && Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length) ? pr.fotosprojetoDir
+    : (pr.fotosprojeto || []);
+  if (!item.projetoCustom) return originais;
+  const custom = Array.isArray(item.fotosProjetoCustom) ? item.fotosProjetoCustom : [];
+  if (!custom.length) return originais;
+  const n = Math.max(originais.length, custom.length);
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(custom[i] || originais[i] || '');
+  return out.filter(Boolean);
 }
 // ── FOTO DE PROJETO ESPECÍFICA DE UM ITEM (orçamento/pedido) ─────────────
 // Permite trocar a foto de projeto só para este item, sem alterar o produto
@@ -4380,25 +4406,34 @@ function fotosProjetoDoItemLado(item) {
 // vale só para este orçamento/pedido). Fica em documento próprio
 // (acn_item_projetos/{itemId}), pelo mesmo motivo das fotos de produto: não
 // estourar o limite de 1MB do documento do orçamento/pedido.
-async function salvarFotoProjetoItem(itemId, foto) {
+// fotos = array index-alinhado com as páginas do projeto; posição vazia/ausente = usa a
+// foto original do produto naquela página. Formato antigo do doc ({foto: string}) trocava
+// TODAS as páginas por uma só; ao ler, ela vira a substituta da página 1 (carregarFotosProjetoItem).
+async function salvarFotosProjetoItem(itemId, fotos) {
   if (!db || !itemId) return;
-  if (foto) await db.collection('acn_item_projetos').doc(String(itemId)).set({ foto });
+  const limpo = (fotos || []).map(f => f || '');
+  while (limpo.length && !limpo[limpo.length - 1]) limpo.pop();   // sem vazios sobrando no final
+  if (limpo.length) await db.collection('acn_item_projetos').doc(String(itemId)).set({ fotos: limpo });
   else await db.collection('acn_item_projetos').doc(String(itemId)).delete();
 }
-async function carregarFotoProjetoItem(itemId) {
-  if (!db || !itemId) return '';
+async function carregarFotosProjetoItem(itemId) {
+  if (!db || !itemId) return [];
   try {
     const snap = await db.collection('acn_item_projetos').doc(String(itemId)).get();
-    return snap.exists ? (snap.data().foto || '') : '';
-  } catch(e) { return ''; }
+    if (!snap.exists) return [];
+    const d = snap.data();
+    if (Array.isArray(d.fotos)) return d.fotos;
+    if (d.foto) return [d.foto];   // formato antigo: uma foto só → agora é a substituta da página 1
+    return [];
+  } catch(e) { return []; }
 }
 // Antes de renderizar/gerar PDF, garante que o projeto do lado ESQUERDO
 // (acn_prod_fotos/{id}_fd{i}) esteja carregado para os itens com sentido Esquerda,
-// e que a foto de projeto específica (acn_item_projetos/{id}) esteja carregada
+// e que as fotos de projeto específicas (acn_item_projetos/{id}) estejam carregadas
 // para os itens com projetoCustom.
 async function prepararLadosDoc(doc) {
   const itensEsq = (doc && doc.items ? doc.items : []).filter(i => i.lado === 'Esquerda' && i.prodId);
-  const itensCustom = (doc && doc.items ? doc.items : []).filter(i => i.projetoCustom && !i.fotoProjetoCustom);
+  const itensCustom = (doc && doc.items ? doc.items : []).filter(i => i.projetoCustom && !(Array.isArray(i.fotosProjetoCustom) && i.fotosProjetoCustom.length));
   await Promise.all([
     ...itensEsq.map(async it => {
       const pr = prodDoItem(it);
@@ -4413,8 +4448,8 @@ async function prepararLadosDoc(doc) {
       catch(e) { pr.fotosprojetoDir = []; }
     }),
     ...itensCustom.map(async it => {
-      try { it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || ''; }
-      catch(e) { it.fotoProjetoCustom = ''; }
+      try { it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || []; }
+      catch(e) { it.fotosProjetoCustom = []; }
     }),
   ]);
 }
@@ -5178,10 +5213,10 @@ async function converterEmPedido() {
     }
 
     if (origemLabel) {
-      // Recupera a foto do projeto específico de cada item que tiver, pra já
+      // Recupera as fotos de projeto específicas de cada item que tiver, pra já
       // sair correto no pedido gerado (acn_item_projetos/{id}).
       await Promise.all(itemsPedido.filter(i => i.projetoCustom).map(async it => {
-        it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || '';
+        it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
       }));
       renderItemsPedido();
       updatePreviewPd();
@@ -5457,28 +5492,29 @@ function toggleProjetoCustomPd(idx) {
   const item = itemsPedido[idx]; if (!item) return;
   item.projetoCustom = !item.projetoCustom;
   if (!item.projetoCustom) {
-    item.fotoProjetoCustom = '';
-    salvarFotoProjetoItem(item.id, '').catch(()=>{});
+    item.fotosProjetoCustom = [];
+    salvarFotosProjetoItem(item.id, []).catch(()=>{});
   }
   renderItemsPedido(); updatePreviewPd();
 }
-async function onProjetoCustomFotoChangePd(idx, input) {
+async function onProjetoCustomFotoChangePd(idx, pagina, input) {
   const file = input.files && input.files[0]; if (!file) return;
   if (file.size > 3 * 1024 * 1024) { alert('Foto muito grande. Use uma imagem até 3MB.'); input.value = ''; return; }
   const reader = new FileReader();
   const base64 = await new Promise(res => { reader.onload = ev => res(ev.target.result); reader.readAsDataURL(file); });
   const compressed = await comprimirFotoProjeto(base64);
   const item = itemsPedido[idx]; if (!item) return;
-  item.fotoProjetoCustom = compressed;
+  if (!Array.isArray(item.fotosProjetoCustom)) item.fotosProjetoCustom = [];
+  item.fotosProjetoCustom[pagina] = compressed;
   input.value = '';
   renderItemsPedido(); updatePreviewPd();
-  salvarFotoProjetoItem(item.id, compressed).catch(e => console.error('Erro ao salvar foto de projeto do item:', e));
+  salvarFotosProjetoItem(item.id, item.fotosProjetoCustom).catch(e => console.error('Erro ao salvar foto de projeto do item:', e));
 }
-function removeProjetoCustomFotoPd(idx) {
+function removeProjetoCustomFotoPd(idx, pagina) {
   const item = itemsPedido[idx]; if (!item) return;
-  item.fotoProjetoCustom = '';
+  if (Array.isArray(item.fotosProjetoCustom)) item.fotosProjetoCustom[pagina] = '';
   renderItemsPedido(); updatePreviewPd();
-  salvarFotoProjetoItem(item.id, '').catch(()=>{});
+  salvarFotosProjetoItem(item.id, item.fotosProjetoCustom || []).catch(()=>{});
 }
 function onPrecoChangePd(idx,val){if(itemsPedido[idx]){itemsPedido[idx].preco=parseFloat(val)||0;updatePreviewPd();}}
 function updatePreviewPd(){
@@ -5830,9 +5866,9 @@ function editarPedido(id) {
     // Preenche os itens
     itemsPedido = JSON.parse(JSON.stringify(p.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
     itemsPedido.forEach(item => { if(!item.searchText) item.searchText = item.desc.split('\n')[0]; inferirLadoDaDesc(item); });
-    // Recupera a foto do projeto específico de cada item que tiver (acn_item_projetos/{id})
+    // Recupera as fotos de projeto específicas de cada item que tiver (acn_item_projetos/{id})
     await Promise.all(itemsPedido.filter(i => i.projetoCustom).map(async it => {
-      it.fotoProjetoCustom = await carregarFotoProjetoItem(it.id) || '';
+      it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
     }));
     renderItemsPedido();
     updatePreviewPd();
@@ -5998,7 +6034,7 @@ async function savePedidos() {
     for (let i = 0; i < pedidos.length; i += BATCH_SIZE) {
       const batch = db.batch();
       pedidos.slice(i, i + BATCH_SIZE).forEach(p => {
-        const doc = { ...p, items: (p.items||[]).map(it=>{const x={...it};delete x.foto;delete x.fotoProjetoCustom;return x;}) };
+        const doc = { ...p, items: (p.items||[]).map(it=>{const x={...it};delete x.foto;delete x.fotosProjetoCustom;return x;}) };
         batch.set(db.collection('acn_pedidos').doc(String(p.id)), doc);
       });
       await batch.commit();
