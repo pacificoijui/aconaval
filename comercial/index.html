@@ -542,7 +542,7 @@ tbody tr:hover{background:#fafbfc}
   </div>
   <nav class="nav">
     <button class="nav-tab active" onclick="showPage('produtos')" data-page="produtos">🔩 Produtos</button>
-    <button class="nav-tab" onclick="showPage('novo')" data-page="novo">📄 Novo Orçamento</button>
+    <button class="nav-tab" onclick="irNovoOrcamento()" data-page="novo">📄 Novo Orçamento</button>
     <button class="nav-tab" onclick="showPage('lista')" id="nav-lista" data-page="lista">📋 Orçamentos <span class="badge" id="badge-count">0</span></button>
     <button class="nav-tab" onclick="irNovoPedido()" data-page="novo-pedido">🛒 Novo Pedido</button>
     <button class="nav-tab" onclick="showPage('lista-pedidos')" id="nav-pedidos" data-page="lista-pedidos">📦 Pedidos <span class="badge" id="badge-pedidos">0</span></button>
@@ -820,7 +820,7 @@ tbody tr:hover{background:#fafbfc}
         <div style="font-size:13px;font-weight:700;color:#003366;margin-bottom:10px">Observação Geral</div>
         <textarea class="form-textarea" id="oc-obs" placeholder="Observação extra para o orçamento (opcional)" oninput="updatePreview()"></textarea>
       </div>
-            <button class="btn btn-success" style="width:100%;padding:10px;font-size:14px;font-weight:600" onclick="gerarOrcamento()">📄 Gerar Orçamento</button>
+            <button class="btn btn-success" id="btn-gerar-orc" style="width:100%;padding:10px;font-size:14px;font-weight:600" onclick="gerarOrcamento()">📄 Gerar Orçamento</button>
     </div>
   </div>
 </div>
@@ -3928,15 +3928,14 @@ function dragDrop(e) {
 }
 
 function initNovoForm() {
-  // Bug fix: limpa o modo de edição ao entrar na aba (evita editar orçamento
-  // antigo quando o usuário navega sem salvar)
-  if (orcamentoEditandoId) {
-    orcamentoEditandoId = null;
-    const btn = document.querySelector('#page-novo .btn-primary[onclick="gerarOrcamento()"]');
-    if (btn) { btn.textContent = '📄 Gerar Orçamento'; btn.style.background = ''; }
-    const title = document.querySelector('#page-novo .sec-title');
-    if (title) title.firstChild.textContent = 'Novo Orçamento ';
-  }
+  // ATENÇÃO: esta função NÃO pode limpar orcamentoEditandoId.
+  // Ela roda dentro de showPage('novo'), e editarOrcamento() faz exatamente
+  // "orcamentoEditandoId = id" e logo em seguida "showPage('novo')" — ou seja,
+  // limpar aqui apagava o modo de edição no mesmo instante em que ele era
+  // ligado. O formulário abria escrito "Editar Orçamento", o usuário alterava e
+  // salvava, e saía um orçamento NOVO em vez de atualizar o existente.
+  // Quem tem que zerar a edição é o botão "Novo Orçamento" do menu
+  // (irNovoOrcamento), igual ao fluxo de pedidos.
   if (!document.getElementById('oc-data').value)
     document.getElementById('oc-data').value = new Date().toISOString().slice(0,10);
   if (!items.length) addItem();
@@ -3954,10 +3953,20 @@ function resetForm() {
   const ocVend=document.getElementById('oc-vendedor'); if(ocVend) ocVend.value='';
   items = [{ id: Date.now(), prodId: '', desc: '', preco: 0 }];
   renderItems(); updatePreview();
-  const btn = document.querySelector('#page-novo .btn-primary[onclick="gerarOrcamento()"]');
+  // Buscado por id. Antes o seletor era '.btn-primary[onclick="gerarOrcamento()"]',
+  // mas o botão é .btn-success — ou seja, o seletor NUNCA casava e o texto do
+  // botão nunca era restaurado (nem trocado ao entrar em edição).
+  const btn = document.getElementById('btn-gerar-orc');
   if (btn) { btn.textContent = '📄 Gerar Orçamento'; btn.style.background = ''; }
   const title = document.querySelector('#page-novo .sec-title');
   if (title) title.firstChild.textContent = 'Novo Orçamento ';
+}
+// Entrada pelo menu "Novo Orçamento": garante formulário limpo, mesmo que tenha
+// ficado no meio de uma edição. É aqui que a edição é abandonada de propósito —
+// nunca dentro de showPage(), que também é usado para ENTRAR na edição.
+function irNovoOrcamento() {
+  showPage('novo');
+  resetForm();
 }
 // ── SENTIDO (Direita/Esquerda) — obrigatório em produtos espelháveis ──
 function prodDoItem(item) { return item && item.prodId ? produtos.find(p => p.id == item.prodId) : null; }
@@ -4266,6 +4275,11 @@ function editarOrcamento(id) {
     renderItems(); updatePreview();
     const title = document.querySelector('#page-novo .sec-title');
     if (title) title.firstChild.textContent = 'Editar Orçamento ';
+    // O botão também precisa dizer que é edição. Antes só o título mudava, e o
+    // botão continuava "Gerar Orçamento" — o que reforçava a impressão de que
+    // ali sairia um orçamento novo.
+    const btnEd = document.getElementById('btn-gerar-orc');
+    if (btnEd) { btnEd.textContent = '💾 Salvar Alterações'; btnEd.style.background = '#185FA5'; }
   }, 50);
 }
 
@@ -4305,16 +4319,30 @@ async function gerarOrcamento() {
   };
 
   if (orcamentoEditandoId) {
-    // Edição — atualiza orçamento existente
+    // Edição — atualiza o orçamento existente, mantendo id e número
     const idx = orcamentos.findIndex(o => o.id == orcamentoEditandoId);
-    if (idx >= 0) {
-      orcamentos[idx] = { ...orcamentos[idx], ...dados };
-      save(); updateBadge();
-      const id = orcamentos[idx].id;
-      orcamentoEditandoId = null;
-      resetForm();
-      showOrcamento(id);
+    if (idx < 0) {
+      // Antes isto não fazia NADA: nem salvava, nem avisava. O usuário clicava
+      // em salvar, o formulário ficava parado e ele não tinha como saber que a
+      // alteração se perdeu.
+      alert('⚠️ Este orçamento não foi encontrado (pode ter sido removido ou expirado em outra sessão). Recarregue a página antes de continuar.');
+      return;
     }
+    orcamentos[idx] = { ...orcamentos[idx], ...dados };
+    const id = orcamentos[idx].id;
+    orcamentoEditandoId = null;
+    updateBadge();
+    // save() precisa ser aguardado: sem o await, um erro de gravação passava
+    // despercebido e o orçamento aparecia atualizado na tela sem ter sido salvo.
+    try {
+      await save();
+      setStatus('✅ Orçamento #' + String(orcamentos[idx].num).padStart(3,'0') + ' atualizado!', 'ok');
+    } catch(e) {
+      console.error('Erro ao salvar orçamento:', e);
+      setStatus('⚠️ Erro ao salvar — verifique sua conexão', 'erro');
+    }
+    resetForm();
+    showOrcamento(id);
   } else {
     // Novo orçamento — número sempre maior que o maior já usado
     // (antes usava orcamentos.length+1, que repetia números após exclusões)
