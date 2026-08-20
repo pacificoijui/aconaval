@@ -5596,7 +5596,17 @@ function resetPrazoEntrega() {
   if(btnNao){ btnNao.style.opacity='1'; btnNao.style.boxShadow=''; }
 }
 function restorePrazoEntrega(val) {
-  if(!val) { resetPrazoEntrega(); return; }
+  // Zera ANTES de restaurar. setPrazoEntrega() é um TOGGLE (clicar de novo na
+  // mesma opção desliga) — se o campo escondido pd-prazo-opcao já estivesse com
+  // a MESMA opção de uma ação anterior na sessão (ex.: acabou de criar outro
+  // pedido com "Cliente pode receber a qualquer momento" e o formulário não foi
+  // resetado antes de abrir este para editar), chamar setPrazoEntrega(opcao) achava
+  // que era um clique repetido e DESLIGAVA o prazo em vez de ligar. Isso fazia
+  // "Gerar Pedido" barrar com "Selecione o prazo de entrega" e a edição inteira
+  // (nome do item incluído) nunca era salva — mas do lado do usuário parecia só
+  // "o PDF não atualiza o nome que eu mudei".
+  resetPrazoEntrega();
+  if(!val) return;
   let opcao = '', obs = '';
   if(val.includes('qualquer momento')) {
     opcao = 'sim';
