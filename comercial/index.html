@@ -2893,10 +2893,7 @@ function copiarOrcamentoWhatsApp(id, btnEl) {
   const fmt = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const link = 'https://loja.contato-aconaval.workers.dev/?id=' + id;
-  let blocoLink = link + '\n\nClica na foto para abrir mais detalhes e verificar os valores.';
-  if (prod.modelo3d) {
-    blocoLink += '\n\n*Clique na foto e veja o projeto em 3d interativo, você pode mover, dar zoom, girar*';
-  }
+  const blocoLink = link;
 
   const blocoOrcamento = `*${prod.nome}*
 
@@ -3137,13 +3134,12 @@ function slugCatWorker(s) {
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-// Copia o link da categoria PRONTO PRA MANDAR NO WHATSAPP: passa pelo Worker,
-// que gera o card com título + foto de capa (sem isso o WhatsApp mostra só o
-// HTML cru do link, feio). "Todos" / categoria vazia copia o catálogo puro
-// (o catálogo geral não tem card de categoria — não faz sentido no Worker).
+// Copia o link normal da categoria (o mesmo endereço que a loja usa pra
+// filtrar por categoria via ?cat=). "Todos" / categoria vazia copia o
+// catálogo puro.
 function copiarLinkCategoria(cat) {
   const link = cat
-    ? 'https://loja.contato-aconaval.workers.dev/?cat=' + slugCatWorker(cat)
+    ? 'https://www.aconaval.com/?cat=' + slugCatWorker(cat)
     : 'https://www.aconaval.com/';
   const ok = () => setStatus(cat ? `✅ Link de "${cat}" copiado (com prévia)!` : '✅ Link do catálogo copiado!', 'ok');
   copiarTexto(link).then(copiado => copiado ? ok() : prompt('Copie o link (Ctrl+C):', link));
