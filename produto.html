@@ -1099,6 +1099,10 @@ var ACN3D = (function() {
       // audio (o stream gravado e o encoder do WebCodecs) tem que sair DAQUI,
       // nao do microfone cru, senao o tratamento nao entra no video.
       var vozOut = null, vozNodes = [];
+      // Medidor do sinal CRU do microfone (antes de qualquer tratamento).
+      // Serve pra saber, olhando o relatório ⓘ, se a voz já chega estourada do
+      // próprio aparelho — distorção que nenhum ajuste aqui consegue desfazer.
+      var vozAnalyser = null, vozPico = 0, vozBlocosEstourados = 0, vozBlocos = 0;
       var origPR = renderer.getPixelRatio();
       var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
                      (navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.userAgent));
@@ -1119,7 +1123,7 @@ var ACN3D = (function() {
       // aparelho está rodando a versão nova ou uma cópia velha em cache — sem
       // isso não dá pra distinguir "a correção não funcionou" de "o celular
       // nem baixou a correção ainda".
-      var GRAVADOR_VERSAO = '2026-08-17-leve-e-nitido';
+      var GRAVADOR_VERSAO = '2026-08-20-voz-celular';
 
       // ── ALVO DA GRAVAÇÃO: "leve o bastante pro WhatsApp não reprocessar" ──
       // O que fazia o vídeo chegar BORRADO no WhatsApp era, contra a intuição,
@@ -1237,7 +1241,10 @@ var ACN3D = (function() {
         t0 = Date.now();
         labTime.textContent = '0:00';
         lab.style.display = 'inline-flex';
-        timer = setInterval(function(){ labTime.textContent = fmt(Math.floor((Date.now()-t0)/1000)); }, 500);
+        timer = setInterval(function(){
+          labTime.textContent = fmt(Math.floor((Date.now()-t0)/1000));
+          amostrarNivelVoz();
+        }, 500);
         flash(isMobile
           ? 'Gravando… fale e gire o modelo. Encoste o dedo na peça para apontar um detalhe.'
           : 'Gravando… fale e gire o modelo. Passe o mouse sobre a peça para apontar um detalhe.', 3600);
@@ -1304,12 +1311,17 @@ var ACN3D = (function() {
 
           // 3) Realca a presenca (~3,5 kHz): e a faixa que faz a palavra ser
           //    entendida no alto-falante pequeno do celular.
+          //    No CELULAR o realce e menor: o microfone do aparelho ja e
+          //    naturalmente brilhante e capta de perto, entao a mesma dose que
+          //    fica boa no PC deixa a voz aspera/estridente.
           var pres = audioCtx.createBiquadFilter();
-          pres.type = 'peaking'; pres.frequency.value = 3500; pres.Q.value = 0.9; pres.gain.value = 4;
+          pres.type = 'peaking'; pres.frequency.value = 3500; pres.Q.value = 0.9;
+          pres.gain.value = isMobile ? 2 : 4;
 
-          // 4) Um brilho leve no agudo, sem chiar.
+          // 4) Um brilho leve no agudo, sem chiar. Mesma logica acima.
           var ar = audioCtx.createBiquadFilter();
-          ar.type = 'highshelf'; ar.frequency.value = 9000; ar.gain.value = 2;
+          ar.type = 'highshelf'; ar.frequency.value = 9000;
+          ar.gain.value = isMobile ? 1 : 2;
 
           // 5) Compressor: aproxima o alto do baixo. Sem ele, a parte falada
           //    de perto estoura e a de longe some.
@@ -1318,18 +1330,65 @@ var ACN3D = (function() {
           comp.ratio.value = 4;       comp.attack.value = 0.006; comp.release.value = 0.18;
 
           // 6) Ganho de compensacao: o compressor derruba o volume geral.
-          var makeup = audioCtx.createGain(); makeup.gain.value = 1.7;
+          //    No celular o proprio aparelho ja entrega o sinal nivelado (o
+          //    controle automatico de ganho fica ligado la), entao reforcar de
+          //    novo aqui so aproximaria do teto sem necessidade.
+          var makeup = audioCtx.createGain();
+          makeup.gain.value = isMobile ? 1.15 : 1.7;
+
+          // 7) Limitador de seguranca: teto fixo logo abaixo do maximo. No uso
+          //    normal ele nem age — existe pra garantir que nenhum pico passe do
+          //    limite e vire distorcao no arquivo final.
+          var lim = audioCtx.createDynamicsCompressor();
+          lim.threshold.value = -1.5; lim.knee.value = 0; lim.ratio.value = 20;
+          lim.attack.value = 0.001;   lim.release.value = 0.06;
+
+          // Medidor no sinal CRU (ramo paralelo, nao altera o som)
+          vozPico = 0; vozBlocosEstourados = 0; vozBlocos = 0;
+          vozAnalyser = audioCtx.createAnalyser();
+          vozAnalyser.fftSize = 2048;
+          entrada.connect(vozAnalyser);
 
           entrada.connect(hp); hp.connect(mud); mud.connect(pres);
-          pres.connect(ar); ar.connect(comp); comp.connect(makeup);
-          vozNodes = [hp, mud, pres, ar, comp, makeup];
-          return makeup;
+          pres.connect(ar); ar.connect(comp); comp.connect(makeup); makeup.connect(lim);
+          vozNodes = [hp, mud, pres, ar, comp, makeup, lim, vozAnalyser];
+          return lim;
         } catch(e) {
           // Se algum no nao existir no aparelho, grava a voz crua — melhor
           // sem tratamento do que sem audio.
           vozNodes = [];
           return entrada;
         }
+      }
+
+      // Lê o pico do microfone CRU. Chamado 2x por segundo enquanto grava.
+      // Custo desprezível (um bloco de 2048 amostras) e roda fora do caminho do
+      // áudio, então não interfere no som nem no vídeo.
+      function amostrarNivelVoz() {
+        if (!vozAnalyser) return;
+        try {
+          var buf = new Float32Array(vozAnalyser.fftSize);
+          vozAnalyser.getFloatTimeDomainData(buf);
+          var pico = 0, colados = 0;
+          for (var i = 0; i < buf.length; i++) {
+            var a = Math.abs(buf[i]);
+            if (a > pico) pico = a;
+            if (a >= 0.985) colados++;   // amostra no teto = estouro na entrada
+          }
+          if (pico > vozPico) vozPico = pico;
+          vozBlocos++;
+          if (colados > 2) vozBlocosEstourados++;
+        } catch(e) {}
+      }
+      // Frase pronta pro relatório: diz se a voz chegou estourada do aparelho.
+      function textoNivelVoz() {
+        if (!vozBlocos) return 'não medido';
+        var dB = vozPico > 0 ? (20 * Math.log10(vozPico)).toFixed(1) : '-∞';
+        var pct = Math.round(vozBlocosEstourados / vozBlocos * 100);
+        return 'pico ' + dB + ' dBFS' +
+               (vozBlocosEstourados
+                 ? ' — ESTOUROU na entrada em ' + pct + '% das medições (o som já chega distorcido do microfone)'
+                 : ' — sem estouro na entrada');
       }
 
       hardStopRec = function() {
@@ -1343,12 +1402,18 @@ var ACN3D = (function() {
         // reaproveita o microfone/stream ja abertos quando possivel.
         if (!mixStream) {
           try {
-            // autoGainControl DESLIGADO de proposito: o controle automatico do
-            // navegador fica subindo e descendo o volume por conta propria e
-            // briga com o compressor da cadeia de voz, causando aquele efeito
-            // de "bombeamento". O nivelamento agora e feito por nos.
+            // autoGainControl: LIGADO no celular, DESLIGADO no PC.
+            // No PC o microfone costuma estar longe e o sinal chega baixo; ali o
+            // controle automatico so brigava com o nosso compressor, causando
+            // aquele efeito de "bombeamento" — por isso ele fica desligado e o
+            // nivelamento e feito pela cadeia de voz.
+            // No CELULAR a situacao se inverte: o aparelho fica perto da boca e o
+            // microfone e sensivel. Sem esse controle, o sinal ja chega ESTOURADO
+            // do proprio microfone, e essa distorcao acontece ANTES de o som
+            // chegar ate nos — nenhum tratamento posterior desfaz. E o controle
+            // automatico do aparelho que segura o ganho de entrada nesse caso.
             micStream = await navigator.mediaDevices.getUserMedia({
-              audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:false }, video:false });
+              audio: { echoCancellation:true, noiseSuppression:true, autoGainControl: isMobile }, video:false });
           } catch(e) {
             flash('🎤 Nao consegui acessar o microfone. Autorize o uso do microfone e tente de novo.', 5000);
             return;
@@ -1725,6 +1790,9 @@ var ACN3D = (function() {
         // Bitrate REAL medido (nao o pedido): com VBR o encoder gasta menos que
         // o teto quando a cena esta parada, entao e este numero que diz quanto
         // tempo ainda cabe no limite do WhatsApp.
+        diagSet('nível do microfone', textoNivelVoz());
+        diagSet('tratamento da voz', 'ganho automático do aparelho: ' + (isMobile ? 'LIGADO' : 'desligado') +
+                ' · realce de presença: +' + (isMobile ? 2 : 4) + 'dB · reforço final: ' + (isMobile ? 1.15 : 1.7) + 'x');
         diagSet('arquivo gerado', nome + ' · ' + (blob.type || '(sem tipo)') + ' · ' + tamTxt +
                 ' · ' + segs + 's · ' + (Math.round(blob.size * 8 / segs / 1e5) / 10) + ' Mbps reais');
 
