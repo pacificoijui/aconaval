@@ -2060,6 +2060,14 @@ function showPage(name) {
   if (name === 'depoimentos') { populateDepCatSelect(); carregarDepoimentos(); }
   if (name === 'videos') { populateVidCatSelect(); carregarVideos(); }
   if (name === 'portfolio') { populatePfCatSelect(); carregarPortfolio(); }
+  // Trocar de página volta ao topo.
+  // Sem isto, clicar em "Editar" num orçamento lá embaixo numa lista longa
+  // parecia NÃO FAZER NADA: a página trocava e o formulário era preenchido,
+  // mas a janela continuava rolada no mesmo ponto — o campo Cliente ficava
+  // acima da área visível e o usuário só via o meio do formulário (ou espaço
+  // vazio). O scrollIntoView da aba, logo acima, não resolve: a barra de menu
+  // é sticky, então ela já está visível e 'block:nearest' não rola nada.
+  window.scrollTo(0, 0);
 }
 // Roda do mouse na faixa de abas costuma rolar na vertical — converte para
 // rolagem horizontal aqui, já que em telas reduzidas o menu nem sempre cabe.
@@ -4262,36 +4270,57 @@ function updatePreview() {
   document.getElementById('sum-avista').textContent = (vistaCombinado > 0 ? 'À vista combinado: ' : 'À vista com desconto: ') + fmtBRL(avistaVal);
 }
 function editarOrcamento(id) {
-  const o = orcamentos.find(x => x.id == id); if (!o) return;
+  const o = orcamentos.find(x => x.id == id);
+  if (!o) {
+    // Antes era um "return" mudo: clicar em Editar num cartão de uma lista já
+    // desatualizada não fazia absolutamente nada, sem nenhum aviso.
+    alert('⚠️ Este orçamento não está mais na lista (pode ter sido removido, ou apagado pela limpeza automática dos 30 dias).\n\nRecarregue a página (F5) e tente de novo.');
+    return;
+  }
   orcamentoEditandoId = id;
-  showPage('novo');
-  setTimeout(async () => {
-    document.getElementById('oc-cliente').value = o.cliente || '';
-    document.getElementById('oc-fone').value    = o.fone    || '';
-    document.getElementById('oc-obs').value     = o.obs     || '';
-    document.getElementById('oc-data').value    = o.data    || new Date().toISOString().slice(0,10);
-    // Preenche número no campo de num (se existir)
-    const numEl = document.getElementById('oc-num');
-    if (numEl) numEl.value = o.num || '';
-    // Preenche itens
-    items = JSON.parse(JSON.stringify(o.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
-    items.forEach(item => { if(!item.searchText) item.searchText = item.desc.split('\n')[0]; inferirLadoDaDesc(item); });
-    // Recupera as fotos de projeto específicas de cada item que tiver (acn_item_projetos/{id})
-    await Promise.all(items.filter(i => i.projetoCustom).map(async it => {
+  showPage('novo');   // síncrono: ativa a página certa e já volta ao topo
+
+  // Preenche TUDO de uma vez. Antes, o preenchimento ficava dentro de um
+  // setTimeout e, pior, ESPERAVA (await) a busca das fotos de projeto no
+  // Firestore antes de desenhar os itens e trocar título/botão. Numa conexão
+  // lenta a tela ficava no meio do caminho: nome do cliente preenchido, nenhum
+  // item na lista e o botão ainda escrito "Gerar Orçamento".
+  document.getElementById('oc-cliente').value = o.cliente || '';
+  document.getElementById('oc-fone').value    = o.fone    || '';
+  document.getElementById('oc-obs').value     = o.obs     || '';
+  document.getElementById('oc-data').value    = o.data    || new Date().toISOString().slice(0,10);
+  const numEl = document.getElementById('oc-num');
+  if (numEl) numEl.value = o.num || '';
+
+  items = JSON.parse(JSON.stringify(o.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
+  items.forEach(item => {
+    if (!item.searchText) item.searchText = (item.desc || '').split('\n')[0];
+    inferirLadoDaDesc(item);
+  });
+
+  preencherCamposDesconto(o.desconto, o.subtotal, o.avistaVal, 'inp-desc-pct', 'inp-desc-val', 'inp-vista-final');
+  setVendedorSelect('oc-vendedor', o.vendedorId, o.vendedorNome);
+  renderItems(); updatePreview();
+
+  const title = document.querySelector('#page-novo .sec-title');
+  if (title) title.firstChild.textContent = 'Editar Orçamento ';
+  // O botão também precisa dizer que é edição. Antes só o título mudava, e o
+  // botão continuava "Gerar Orçamento" — o que reforçava a impressão de que
+  // ali sairia um orçamento novo.
+  const btnEd = document.getElementById('btn-gerar-orc');
+  if (btnEd) { btnEd.textContent = '💾 Salvar Alterações'; btnEd.style.background = '#185FA5'; }
+
+  // As fotos de projeto específicas chegam depois, sem segurar a tela.
+  const comCustom = items.filter(i => i.projetoCustom);
+  if (comCustom.length) {
+    const idDaEdicao = id;
+    Promise.all(comCustom.map(async it => {
       it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
-    }));
-    // Restaurar desconto
-    preencherCamposDesconto(o.desconto, o.subtotal, o.avistaVal, 'inp-desc-pct', 'inp-desc-val', 'inp-vista-final');
-    setVendedorSelect('oc-vendedor', o.vendedorId, o.vendedorNome);
-    renderItems(); updatePreview();
-    const title = document.querySelector('#page-novo .sec-title');
-    if (title) title.firstChild.textContent = 'Editar Orçamento ';
-    // O botão também precisa dizer que é edição. Antes só o título mudava, e o
-    // botão continuava "Gerar Orçamento" — o que reforçava a impressão de que
-    // ali sairia um orçamento novo.
-    const btnEd = document.getElementById('btn-gerar-orc');
-    if (btnEd) { btnEd.textContent = '💾 Salvar Alterações'; btnEd.style.background = '#185FA5'; }
-  }, 50);
+    })).then(() => {
+      // Se o usuário já saiu desta edição nesse meio tempo, não redesenha por cima
+      if (orcamentoEditandoId === idDaEdicao) renderItems();
+    }).catch(() => {});
+  }
 }
 
 async function gerarOrcamento() {
