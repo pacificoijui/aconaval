@@ -3688,17 +3688,32 @@ function renderProdutos() {
   if (!lista.length) {
     tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">📦</div><p>Nenhum produto encontrado.</p></div></td></tr>';
   } else {
+    // Dois índices montados UMA vez por desenho da lista.
+    // Antes, cada linha varria o catálogo inteiro atrás dos conjuntos que a
+    // contêm (produtos.filter dentro do map) e fazia um produtos.find por
+    // componente — ou seja, custo multiplicado pelo número de produtos. Como
+    // esta função roda a cada tecla digitada na busca, num catálogo grande isso
+    // é exatamente o tipo de coisa que faz a tela travar ao digitar.
+    const porId = new Map(produtos.map(x => [x.id, x]));
+    const conjuntosPorComponente = new Map();
+    produtos.forEach(x => {
+      if (x.tipoProd !== 'conjunto' || !x.componentes) return;
+      x.componentes.forEach(c => {
+        if (!conjuntosPorComponente.has(c.prodId)) conjuntosPorComponente.set(c.prodId, []);
+        conjuntosPorComponente.get(c.prodId).push(x);
+      });
+    });
     tbody.innerHTML = lista.map((p) => {
       const filtroBadges = (filtrosDef[p.cat]||[]).map((f,i)=>{
         const v=p.filtros&&p.filtros[f.nome]; if(!v) return '';
         const c=corFiltro(i);
-        return `<span style="background:${c.bg};color:${c.text};border:1px solid ${c.border};font-size:10px;padding:1px 7px;border-radius:20px;font-weight:600">${f.nome}: ${v}</span>`;
+        return `<span style="background:${c.bg};color:${c.text};border:1px solid ${c.border};font-size:10px;padding:1px 7px;border-radius:20px;font-weight:600">${escHtml(f.nome)}: ${escHtml(v)}</span>`;
       }).join('');
       // Conjuntos que contêm este produto
-      const conjsDoP = produtos.filter(x=>x.tipoProd==='conjunto'&&x.componentes&&x.componentes.some(c=>c.prodId===p.id));
+      const conjsDoP = conjuntosPorComponente.get(p.id) || [];
       // Componentes se for conjunto
       const isConj = p.tipoProd==='conjunto';
-      const compNames = isConj && p.componentes ? p.componentes.map(c=>{ const px=produtos.find(x=>x.id===c.prodId); return px?px.nome:'?'; }) : [];
+      const compNames = isConj && p.componentes ? p.componentes.map(c=>{ const px=porId.get(c.prodId); return px?px.nome:'?'; }) : [];
       return `
       <tr draggable="true" data-id="${p.id}" ondragstart="dragStart(event)" ondragover="dragOver(event)" ondrop="dragDrop(event)" ondragleave="dragLeave(event)" ondragend="dragEnd(event)">
         <td data-cell="drag" style="padding:0 4px"><span class="drag-handle" title="Arrastar para reordenar">⠿</span></td>
@@ -3706,19 +3721,19 @@ function renderProdutos() {
         <td data-cell="foto">${p.foto ? `<img src="${p.foto}" class="photo-thumb"/>` : (isConj?'<span style="font-size:22px">📦</span>':'<span style="font-size:18px;opacity:.2">📷</span>')}</td>
         <td data-cell="nome">
           <div style="display:flex;align-items:center;gap:6px;font-weight:600">
-            ${p.nome}
+            ${escHtml(p.nome)}
             ${isConj?`<span style="background:#E6F1FB;color:#185FA5;font-size:10px;padding:1px 7px;border-radius:20px;border:1px solid #B5D4F4;font-weight:600">📦 ${p.componentes?p.componentes.length:0} itens</span>`:''}
           </div>
-          ${p.dim ? `<div style="font-size:12px;color:#888">${p.dim}</div>` : ''}
-          ${isConj && compNames.length ? `<div style="font-size:11px;color:#888;margin-top:2px">↳ ${compNames.join(' · ')}</div>` : ''}
+          ${p.dim ? `<div style="font-size:12px;color:#888">${escHtml(p.dim)}</div>` : ''}
+          ${isConj && compNames.length ? `<div style="font-size:11px;color:#888;margin-top:2px">↳ ${compNames.map(escHtml).join(' · ')}</div>` : ''}
           ${filtroBadges ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${filtroBadges}</div>` : ''}
           ${conjsDoP.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
             <span style="font-size:10px;color:#888">Conjuntos:</span>
-            ${conjsDoP.map(cj=>`<span class="badge-conj" title="Ver conjunto" onclick="editProduto(${cj.id})">📦 ${cj.nome}</span>`).join('')}
+            ${conjsDoP.map(cj=>`<span class="badge-conj" title="Ver conjunto" onclick="editProduto(${cj.id})">📦 ${escHtml(cj.nome)}</span>`).join('')}
           </div>` : ''}
-          ${p.obs ? `<div style="font-size:11px;color:#bbb;margin-top:2px">${p.obs}</div>` : ''}
+          ${p.obs ? `<div style="font-size:11px;color:#bbb;margin-top:2px">${escHtml(p.obs)}</div>` : ''}
         </td>
-        <td data-label="Categoria">${p.cat ? `<span class="badge-cat" style="cursor:pointer" title="Filtrar por ${p.cat}" data-cat="${p.cat}" onclick="setFiltroCategoria(this.dataset.cat)">${p.cat}</span>` : '<span style="color:#ccc">—</span>'}</td>
+        <td data-label="Categoria">${p.cat ? `<span class="badge-cat" style="cursor:pointer" title="Filtrar por ${escHtml(p.cat)}" data-cat="${escHtml(p.cat)}" onclick="setFiltroCategoria(this.dataset.cat)">${escHtml(p.cat)}</span>` : '<span style="color:#ccc">—</span>'}</td>
         <td data-label="Valor" style="text-align:right"><span class="price-tag">${fmtBRL(p.preco)}</span></td>
         <td data-cell="acoes"><div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="editProduto(${p.id})">✏️ Editar</button>
@@ -4381,8 +4396,8 @@ function renderLista() {
       <div style="display:flex;align-items:center;flex:1">
         <span class="quote-num">#${String(o.num).padStart(3,'0')}</span>
         <div class="quote-info">
-          <div class="quote-client">${o.cliente}</div>
-          <div class="quote-meta">${fmtDate(o.data)}${o.fone?' · 📞 '+o.fone:''} · ${o.items.length} item(s)${o.vendedorNome?' · 👤 '+o.vendedorNome:''}</div>
+          <div class="quote-client">${escHtml(o.cliente)}</div>
+          <div class="quote-meta">${fmtDate(o.data)}${o.fone?' · 📞 '+escHtml(o.fone):''} · ${o.items.length} item(s)${o.vendedorNome?' · 👤 '+escHtml(o.vendedorNome):''}</div>
         </div>
       </div>
       <span class="quote-total">${fmtBRL(o.total||o.subtotal)}</span>
@@ -4495,7 +4510,7 @@ async function showOrcamento(id) {
   document.getElementById('modal-body').innerHTML =
     `<iframe src="${blobUrl}"
       style="width:100%;height:70vh;border:none;border-radius:4px"
-      onload="this.style.height=(this.contentDocument.documentElement.scrollHeight+20)+'px'">
+      onload="try{this.style.height=(this.contentDocument.documentElement.scrollHeight+20)+'px'}catch(e){}">
     </iframe>`;
   document.getElementById('modal-orc').classList.add('open');
 }
@@ -6144,14 +6159,14 @@ function renderListaPedidos(){
         </div>
         <div class="quote-info">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <div class="quote-client">${p.nome}</div>
+            <div class="quote-client">${escHtml(p.nome)}</div>
             ${statusTag}
           </div>
           <div class="quote-meta" style="margin-top:2px">
-            ${localizacao?`<strong style="color:#185FA5">📍 ${localizacao}</strong> · `:''}
-            ${fmtDate(p.data)}${p.fone?' · 📞 '+p.fone:''} · ${p.items.length} item(s)${p.vendedorNome?' · 👤 '+p.vendedorNome:''}
+            ${localizacao?`<strong style="color:#185FA5">📍 ${escHtml(localizacao)}</strong> · `:''}
+            ${fmtDate(p.data)}${p.fone?' · 📞 '+escHtml(p.fone):''} · ${p.items.length} item(s)${p.vendedorNome?' · 👤 '+escHtml(p.vendedorNome):''}
           </div>
-          ${assinado&&p.assinatura?`<div style="font-size:11px;color:#1a7a44;margin-top:2px">✍️ ${p.assinatura.nome} · ${new Date(p.assinatura.data).toLocaleString('pt-BR')}</div>`:''}
+          ${assinado&&p.assinatura?`<div style="font-size:11px;color:#1a7a44;margin-top:2px">✍️ ${escHtml(p.assinatura.nome)} · ${new Date(p.assinatura.data).toLocaleString('pt-BR')}</div>`:''}
         </div>
       </div>
       <span class="quote-total">${fmtBRL(p.total||p.subtotal)}</span>
@@ -6242,7 +6257,7 @@ async function showPedido(id){
   document.getElementById('modal-pedido-body').innerHTML =
     `<iframe src="${blobUrl}"
       style="width:100%;height:70vh;border:none;border-radius:4px"
-      onload="this.style.height=(this.contentDocument.documentElement.scrollHeight+20)+'px'">
+      onload="try{this.style.height=(this.contentDocument.documentElement.scrollHeight+20)+'px'}catch(e){}">
     </iframe>`;
   document.getElementById('modal-pedido').style.display='flex';
 }
