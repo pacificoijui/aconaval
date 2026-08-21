@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>TESTE — Loja com 3D no lugar da foto</title>
+<style>
+:root{--azul:#003366;--azul2:#185FA5;--borda:#e0e4e8;--cinza:#6b7280;--bg:#f5f7fa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:#1a1f26}
+
+/* Faixa de aviso: esta página NÃO é a loja */
+.aviso{background:#FFF4D6;border-bottom:2px solid #E0B050;padding:10px 16px;font-size:13px;color:#7a5800;text-align:center;font-weight:600}
+.aviso a{color:#7a5800}
+
+header{background:#fff;border-bottom:1px solid var(--borda);padding:14px 16px}
+h1{font-size:18px;color:var(--azul);font-weight:800}
+.sub{font-size:12.5px;color:var(--cinza);margin-top:3px}
+
+/* ── Painel de controle do teste ── */
+.painel{background:#fff;border-bottom:1px solid var(--borda);padding:12px 16px;
+  display:flex;gap:18px;flex-wrap:wrap;align-items:center;position:sticky;top:0;z-index:20}
+.grupo{display:flex;align-items:center;gap:7px;font-size:13px}
+.grupo label{font-weight:600;color:#374151;cursor:pointer}
+.seg{display:flex;border:1px solid var(--borda);border-radius:8px;overflow:hidden}
+.seg button{border:none;background:#fff;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--cinza);font-family:inherit}
+.seg button.on{background:var(--azul2);color:#fff}
+input[type=range]{width:110px}
+
+/* ── Placar ao vivo ── */
+.placar{display:flex;gap:16px;flex-wrap:wrap;background:#0f172a;color:#e2e8f0;padding:9px 16px;font-size:12.5px}
+.placar div{display:flex;gap:6px;align-items:baseline}
+.placar b{color:#fff;font-size:14px;font-variant-numeric:tabular-nums}
+.placar .rot{color:#94a3b8}
+.veredito{padding:10px 16px;font-size:13px;font-weight:600;display:none}
+.veredito.bom{background:#EAF3DE;color:#1e7a47;display:block}
+.veredito.medio{background:#FFF4D6;color:#7a5800;display:block}
+.veredito.ruim{background:#FCEBEB;color:#A32D2D;display:block}
+
+/* ── Grade de produtos (mesma proporção da loja) ── */
+.grade{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px;max-width:1180px;margin:0 auto}
+@media(max-width:900px){.grade{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.grade{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid var(--borda);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+
+/* A "janela 3D": fica TRANSPARENTE. Quem desenha ali é o canvas compartilhado,
+   que flutua por cima e pinta só dentro deste retângulo. */
+.janela{position:relative;width:100%;aspect-ratio:4/3;background:
+  linear-gradient(135deg,#f8fafc 25%,transparent 25%) -8px 0/16px 16px,
+  linear-gradient(225deg,#f8fafc 25%,transparent 25%) -8px 0/16px 16px,
+  linear-gradient(315deg,#f8fafc 25%,transparent 25%) 0 0/16px 16px,
+  linear-gradient(45deg,#f8fafc 25%,transparent 25%) 0 0/16px 16px, #fff;
+  cursor:grab;touch-action:pan-y}
+.janela.arrastando{cursor:grabbing}
+.janela img{width:100%;height:100%;object-fit:contain;display:block}
+.selo{position:absolute;left:8px;top:8px;background:rgba(15,23,42,.78);color:#fff;
+  font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:.4px;z-index:2}
+.selo.foto{background:rgba(107,114,128,.85)}
+.carregando{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--cinza);background:rgba(255,255,255,.75);z-index:3}
+.dica{position:absolute;right:8px;bottom:8px;font-size:10.5px;color:#94a3b8;z-index:2;pointer-events:none}
+.corpo{padding:11px 13px;display:flex;flex-direction:column;gap:3px;flex:1}
+.nome{font-size:13.5px;font-weight:700;line-height:1.25}
+.dim{font-size:11.5px;color:var(--cinza)}
+.peso{font-size:11px;color:#94a3b8;margin-top:auto;padding-top:6px;font-variant-numeric:tabular-nums}
+.preco{font-size:14px;font-weight:800;color:var(--azul2)}
+
+/* Canvas único, POR CIMA dos cards mas sem capturar cliques. Ele pinta apenas
+   dentro do retângulo de cada janela (scissor) e fica transparente no resto. */
+#tela3d{position:fixed;inset:0;pointer-events:none;z-index:5}
+
+.vazio{padding:50px 16px;text-align:center;color:var(--cinza);font-size:14px}
+.erro{background:#FCEBEB;color:#A32D2D;padding:12px 16px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="aviso">
+  🧪 <b>Página de teste</b> — não é a loja. A loja de verdade continua em
+  <a href="/">aconaval.com</a>, sem nenhuma alteração.
+</div>
+
+<header>
+  <h1>Loja com 3D no lugar da foto</h1>
+  <div class="sub">Mesmo catálogo real da loja. Produtos que têm modelo 3D aparecem giráveis; os demais continuam com foto.</div>
+</header>
+
+<div class="painel">
+  <div class="grupo">
+    <label>Mostrar:</label>
+    <div class="seg" id="seg-modo">
+      <button data-modo="3d" class="on">3D quando houver</button>
+      <button data-modo="foto">Só foto</button>
+    </div>
+  </div>
+  <div class="grupo">
+    <input type="checkbox" id="girar" checked/><label for="girar">Girar sozinho</label>
+  </div>
+  <div class="grupo">
+    <label for="qual">Qualidade</label>
+    <input type="range" id="qual" min="1" max="3" step="0.5" value="1.5"/>
+    <span id="qual-txt" style="color:var(--cinza);font-size:12px">1.5x</span>
+  </div>
+  <div class="grupo">
+    <input type="checkbox" id="lazy" checked/><label for="lazy">Carregar só o que está na tela</label>
+  </div>
+</div>
+
+<div class="placar">
+  <div><span class="rot">Quadros por segundo:</span> <b id="pl-fps">—</b></div>
+  <div><span class="rot">Modelos 3D carregados:</span> <b id="pl-mod">0</b></div>
+  <div><span class="rot">Baixado em 3D:</span> <b id="pl-mb">0 MB</b></div>
+  <div><span class="rot">Peso médio por modelo:</span> <b id="pl-med">—</b></div>
+  <div><span class="rot">Contextos WebGL:</span> <b id="pl-ctx">1</b></div>
+  <div><span class="rot">Produtos com 3D:</span> <b id="pl-cob">—</b></div>
+</div>
+<div class="veredito" id="veredito"></div>
+
+<canvas id="tela3d"></canvas>
+<div class="grade" id="grade"></div>
+<div class="vazio" id="estado">Carregando catálogo…</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  PÁGINA DE TESTE — não faz parte da loja e não grava nada.
+//  Só LÊ o catálogo (mesmo Firestore da loja) para responder uma
+//  pergunta: dá pra trocar a foto do card por um 3D girável?
+//
+//  O ponto crítico é desempenho. Um visualizador 3D por card seria um
+//  CONTEXTO WebGL por card, e o navegador derruba os mais antigos
+//  depois de ~8-16 — a página começaria a piscar e travar. Aqui existe
+//  UM único renderizador: a cada quadro ele recorta (scissor) o
+//  retângulo de cada card visível e desenha aquela cena ali dentro.
+//  Um contexto só, não importa quantos produtos a página tenha.
+// ═══════════════════════════════════════════════════════════════════
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCdmk31BghJWGxjWwqGwNuC_LwsDXgX4JY",
+  authDomain: "orcamentos-aco-naval.firebaseapp.com",
+  projectId: "orcamentos-aco-naval",
+  storageBucket: "orcamentos-aco-naval.firebasestorage.app",
+  messagingSenderId: "802823831509",
+  appId: "1:802823831509:web:b5e575d8d5b7b62d5dc75c"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const escHtml = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const fmtBRL = v => (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const fmtMB = b => b >= 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB';
+
+// ── Estado do teste ────────────────────────────────────────────────
+let modo = '3d';
+let girarSozinho = true;
+let qualidade = 1.5;
+let somenteVisiveis = true;
+const fichas = [];              // uma por card com 3D
+let bytesBaixados = 0, modelosCarregados = 0;
+
+// ── Renderizador ÚNICO ─────────────────────────────────────────────
+const tela = document.getElementById('tela3d');
+const renderer = new THREE.WebGLRenderer({
+  canvas: tela, alpha: true, antialias: true, powerPreference: 'high-performance'
+});
+renderer.setClearAlpha(0);
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+function ajustarTela() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, qualidade));
+  renderer.setSize(w, h, false);
+}
+window.addEventListener('resize', ajustarTela);
+ajustarTela();
+
+// Luz e câmera são as MESMAS para todos os cards — cada produto só troca de
+// cena. Isso evita recriar objetos caros a cada card.
+function novaCena(objeto) {
+  const cena = new THREE.Scene();
+  cena.add(new THREE.HemisphereLight(0xffffff, 0x9099a5, 1.15));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+  dir.position.set(3, 6, 4);
+  cena.add(dir);
+  cena.add(objeto);
+  return cena;
+}
+
+// Enquadra o modelo: centraliza na origem e escala pra caber sempre igual,
+// independente do tamanho em que a peça foi modelada.
+function enquadrar(objeto) {
+  const caixa = new THREE.Box3().setFromObject(objeto);
+  const tam = caixa.getSize(new THREE.Vector3());
+  const centro = caixa.getCenter(new THREE.Vector3());
+  const maior = Math.max(tam.x, tam.y, tam.z) || 1;
+  objeto.position.sub(centro);
+  const grupo = new THREE.Group();
+  grupo.add(objeto);
+  grupo.scale.setScalar(1.6 / maior);
+  return grupo;
+}
+
+// ── Laço de desenho ────────────────────────────────────────────────
+let ultimoQuadro = performance.now(), acumFps = 0, nQuadros = 0;
+
+function desenhar(agora) {
+  requestAnimationFrame(desenhar);
+
+  // FPS medido de verdade (média de 1s)
+  const dt = agora - ultimoQuadro; ultimoQuadro = agora;
+  if (dt > 0) { acumFps += 1000 / dt; nQuadros++; }
+  if (nQuadros >= 30) {
+    document.getElementById('pl-fps').textContent = Math.round(acumFps / nQuadros);
+    acumFps = 0; nQuadros = 0;
+  }
+
+  // Limpa a tela INTEIRA (transparente) antes de recortar
+  renderer.setScissorTest(false);
+  renderer.clear();
+
+  if (modo !== '3d' || document.hidden) return;
+
+  const alturaJanela = window.innerHeight;
+  renderer.setScissorTest(true);
+
+  for (const f of fichas) {
+    if (!f.grupo) continue;                       // ainda não carregou
+    const r = f.el.getBoundingClientRect();
+    // Fora da tela: nem calcula. É isto que segura o custo num catálogo grande.
+    if (r.bottom < 0 || r.top > alturaJanela || r.width === 0) continue;
+
+    if (girarSozinho && !f.arrastando) f.grupo.rotation.y += 0.005;
+
+    const base = renderer.domElement.clientHeight;
+    renderer.setViewport(r.left, base - r.bottom, r.width, r.height);
+    renderer.setScissor(r.left, base - r.bottom, r.width, r.height);
+    f.camera.aspect = r.width / r.height;
+    f.camera.updateProjectionMatrix();
+    renderer.render(f.cena, f.camera);
+  }
+  renderer.setScissorTest(false);
+}
+requestAnimationFrame(desenhar);
+
+// ── Carregamento de um modelo ──────────────────────────────────────
+// Busca com fetch (não com o loader direto) só para poder MEDIR o tamanho
+// exato do arquivo — é o número que decide se isso é viável numa loja
+// pública, onde muita gente entra pelo celular com dados móveis.
+const loader = new THREE.GLTFLoader();
+
+async function carregarModelo(f) {
+  if (f.estado !== 'espera') return;
+  f.estado = 'carregando';
+  try {
+    const resp = await fetch(f.url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    f.bytes = buf.byteLength;
+    bytesBaixados += f.bytes;
+
+    const gltf = await new Promise((ok, err) => loader.parse(buf, '', ok, err));
+    f.grupo = enquadrar(gltf.scene);
+    f.cena = novaCena(f.grupo);
+    f.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+    f.camera.position.set(0, 0.35, 3.1);
+    f.camera.lookAt(0, 0, 0);
+    f.estado = 'pronto';
+    modelosCarregados++;
+
+    const carr = f.el.querySelector('.carregando'); if (carr) carr.remove();
+    const img = f.el.querySelector('img'); if (img) img.style.display = 'none';
+    const peso = f.card.querySelector('.peso');
+    if (peso) peso.textContent = '📦 modelo 3D: ' + fmtMB(f.bytes);
+    atualizarPlacar();
+  } catch (e) {
+    f.estado = 'erro';
+    const carr = f.el.querySelector('.carregando');
+    if (carr) { carr.textContent = 'não consegui carregar o 3D'; carr.style.color = '#A32D2D'; }
+    console.warn('Falha ao carregar', f.url, e);
+  }
+}
+
+// Só carrega o que chega perto da tela. Sem isso, abrir a loja baixaria
+// TODOS os modelos de uma vez — dezenas de MB antes do primeiro produto
+// aparecer.
+const observador = new IntersectionObserver(entradas => {
+  if (!somenteVisiveis) return;
+  for (const e of entradas) {
+    if (e.isIntersecting) {
+      const f = fichas.find(x => x.el === e.target);
+      if (f) carregarModelo(f);
+    }
+  }
+}, { rootMargin: '250px' });
+
+function atualizarPlacar() {
+  document.getElementById('pl-mod').textContent = modelosCarregados;
+  document.getElementById('pl-mb').textContent = fmtMB(bytesBaixados);
+  document.getElementById('pl-med').textContent =
+    modelosCarregados ? fmtMB(bytesBaixados / modelosCarregados) : '—';
+  avaliar();
+}
+
+// Traduz os números em uma resposta prática: dá pra colocar isso na loja?
+function avaliar() {
+  const el = document.getElementById('veredito');
+  if (!modelosCarregados) { el.className = 'veredito'; return; }
+  const media = bytesBaixados / modelosCarregados;
+  const porTela = media * 6;   // ~6 produtos visíveis de primeira
+  if (media <= 600 * 1024) {
+    el.className = 'veredito bom';
+    el.textContent = '✅ Peso saudável: ' + fmtMB(media) + ' por modelo. Uma tela de 6 produtos baixa ~' +
+      fmtMB(porTela) + ' — comparável a uma página com fotos boas. Dá pra usar na loja.';
+  } else if (media <= 2 * 1024 * 1024) {
+    el.className = 'veredito medio';
+    el.textContent = '⚠️ Pesado para uma loja pública: ' + fmtMB(media) + ' por modelo (~' + fmtMB(porTela) +
+      ' só na primeira tela). Funciona no Wi-Fi, mas no 4G a primeira impressão fica lenta. Compensa comprimir os modelos (Draco) antes de adotar.';
+  } else {
+    el.className = 'veredito ruim';
+    el.textContent = '❌ Pesado demais: ' + fmtMB(media) + ' por modelo (~' + fmtMB(porTela) +
+      ' na primeira tela). Do jeito que os arquivos estão hoje, isso afastaria cliente no celular. Precisa reduzir os modelos antes.';
+  }
+}
+
+// ── Giro com o dedo/mouse ──────────────────────────────────────────
+function ligarArrasto(f) {
+  let x0 = null;
+  f.el.addEventListener('pointerdown', e => {
+    if (!f.grupo) return;
+    x0 = e.clientX; f.arrastando = true;
+    f.el.classList.add('arrastando');
+    f.el.setPointerCapture(e.pointerId);
+  });
+  f.el.addEventListener('pointermove', e => {
+    if (x0 === null || !f.grupo) return;
+    f.grupo.rotation.y += (e.clientX - x0) * 0.01;
+    x0 = e.clientX;
+  });
+  const soltar = e => {
+    if (x0 === null) return;
+    x0 = null; f.arrastando = false;
+    f.el.classList.remove('arrastando');
+    try { f.el.releasePointerCapture(e.pointerId); } catch(_) {}
+  };
+  f.el.addEventListener('pointerup', soltar);
+  f.el.addEventListener('pointercancel', soltar);
+  f.el.addEventListener('pointerleave', soltar);
+}
+
+// ── Monta a grade ──────────────────────────────────────────────────
+function montar(produtos) {
+  const grade = document.getElementById('grade');
+  const com3d = produtos.filter(p => p.modelo3d).length;
+  document.getElementById('pl-cob').textContent = com3d + ' de ' + produtos.length;
+
+  grade.innerHTML = produtos.map((p, i) => {
+    const tem3d = !!p.modelo3d;
+    return `
+    <div class="card" data-i="${i}">
+      <div class="janela" data-i="${i}">
+        <div class="selo${tem3d ? '' : ' foto'}">${tem3d ? '3D' : 'FOTO'}</div>
+        ${p.foto ? `<img src="${escHtml(p.foto)}" alt="${escHtml(p.nome)}" loading="lazy"/>` : ''}
+        ${tem3d ? '<div class="carregando">carregando 3D…</div><div class="dica">arraste para girar</div>' : ''}
+      </div>
+      <div class="corpo">
+        <div class="nome">${escHtml(p.nome)}</div>
+        ${p.dim ? `<div class="dim">${escHtml(p.dim)}</div>` : ''}
+        ${p.preco > 0 ? `<div class="preco">${fmtBRL(p.preco)}</div>` : ''}
+        <div class="peso">${tem3d ? '📦 modelo 3D: medindo…' : '🖼️ sem modelo 3D — usando a foto'}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  produtos.forEach((p, i) => {
+    if (!p.modelo3d) return;
+    const card = grade.querySelector(`.card[data-i="${i}"]`);
+    const el = card.querySelector('.janela');
+    const f = { el, card, url: p.modelo3d, estado: 'espera', grupo: null, cena: null,
+                camera: null, bytes: 0, arrastando: false };
+    fichas.push(f);
+    ligarArrasto(f);
+    observador.observe(el);
+  });
+
+  document.getElementById('estado').style.display = 'none';
+  if (!com3d) {
+    const es = document.getElementById('estado');
+    es.style.display = '';
+    es.innerHTML = 'Nenhum produto do catálogo tem modelo 3D cadastrado ainda — ' +
+                   'por isso todos aparecem com foto. Suba um GLB em algum produto no comercial para ver o efeito.';
+  }
+}
+
+// ── Controles ──────────────────────────────────────────────────────
+document.getElementById('seg-modo').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  modo = b.dataset.modo;
+  document.querySelectorAll('#seg-modo button').forEach(x => x.classList.toggle('on', x === b));
+  // No modo "só foto" as imagens voltam a aparecer — é a comparação lado a lado
+  fichas.forEach(f => {
+    const img = f.el.querySelector('img');
+    if (img) img.style.display = (modo === 'foto' || !f.grupo) ? '' : 'none';
+    const dica = f.el.querySelector('.dica');
+    if (dica) dica.style.display = modo === 'foto' ? 'none' : '';
+  });
+});
+document.getElementById('girar').addEventListener('change', e => { girarSozinho = e.target.checked; });
+document.getElementById('qual').addEventListener('input', e => {
+  qualidade = parseFloat(e.target.value);
+  document.getElementById('qual-txt').textContent = qualidade + 'x';
+  ajustarTela();
+});
+document.getElementById('lazy').addEventListener('change', e => {
+  somenteVisiveis = e.target.checked;
+  if (!somenteVisiveis) fichas.forEach(carregarModelo);   // baixa tudo agora
+});
+
+// ── Catálogo (somente leitura) ─────────────────────────────────────
+(async function carregar() {
+  try {
+    const idxSnap = await db.collection('acn').doc('produtos_index').get();
+    if (!idxSnap.exists) throw new Error('índice de produtos não encontrado');
+    const ids = idxSnap.data().ids || [];
+    const snaps = await Promise.all(ids.map(id => db.collection('acn_produtos').doc(String(id)).get()));
+    const produtos = snaps.filter(s => s.exists).map(s => s.data()).filter(p => p && p.nome);
+    // Produtos COM 3D primeiro: a página existe para avaliar o 3D
+    produtos.sort((a, b) => (b.modelo3d ? 1 : 0) - (a.modelo3d ? 1 : 0));
+    montar(produtos);
+  } catch (e) {
+    console.error(e);
+    document.getElementById('estado').outerHTML =
+      '<div class="erro">Não consegui carregar o catálogo: ' + escHtml(e.message || e) + '</div>';
+  }
+})();
+</script>
+</body>
+</html>
