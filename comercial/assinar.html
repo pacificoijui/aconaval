@@ -685,15 +685,22 @@ async function carregarFotosProjetoDir(prodId) {
   } catch { return []; }
 }
 
-// Foto de projeto específica de um item (acn_item_projetos/{itemId}) — vendedor
-// pode trocar o projeto só para este pedido, sem mexer no produto do catálogo.
-const itemFotoProjetoCustom = {};
-async function carregarFotoProjetoItem(itemId) {
-  if (!itemId) return '';
+// Fotos de projeto específicas de um item (acn_item_projetos/{itemId}) — vendedor
+// pode trocar o projeto página a página, só para este pedido, sem mexer no
+// produto do catálogo. Array index-alinhado com as páginas do projeto
+// (fotosprojeto/fotosprojetoDir); posição vazia = usa a foto original do
+// produto naquela página (ver montagem em itemsFotosProjetoAtual abaixo).
+const itemFotosProjetoCustom = {};
+async function carregarFotosProjetoItem(itemId) {
+  if (!itemId) return [];
   try {
     const snap = await db.collection('acn_item_projetos').doc(String(itemId)).get();
-    return snap.exists ? (snap.data().foto || '') : '';
-  } catch { return ''; }
+    if (!snap.exists) return [];
+    const d = snap.data();
+    if (Array.isArray(d.fotos)) return d.fotos;
+    if (d.foto) return [d.foto];   // formato antigo: uma foto só → vira a substituta da página 1
+    return [];
+  } catch { return []; }
 }
 
 // ── CARREGA PEDIDO ────────────────────────────────────────────────
@@ -740,10 +747,10 @@ async function carregarPedido() {
     prodIdsEsq.forEach((pid, i) => { prodFotosProjetoDir[String(pid)] = fotosDirSnaps[i]; });
 
     // Itens com projeto específico (trocado só para este pedido) têm prioridade
-    // sobre o projeto padrão do produto.
+    // sobre o projeto padrão do produto, página a página.
     const itensCustom = (p.items || []).filter(it => it.projetoCustom && it.id);
-    const customSnaps = await Promise.all(itensCustom.map(it => carregarFotoProjetoItem(it.id)));
-    itensCustom.forEach((it, i) => { itemFotoProjetoCustom[String(it.id)] = customSnaps[i]; });
+    const customSnaps = await Promise.all(itensCustom.map(it => carregarFotosProjetoItem(it.id)));
+    itensCustom.forEach((it, i) => { itemFotosProjetoCustom[String(it.id)] = customSnaps[i]; });
 
     pararRelogioCarga();
     renderPedido(p);
@@ -806,20 +813,26 @@ function renderPedido(p) {
   // Itens
   const itensEl = document.getElementById('p-itens');
   itemsFotosProjetoAtual = (p.items||[]).map(item => {
-    // Projeto específico deste item (trocado só para este pedido) tem
-    // prioridade sobre o projeto padrão do produto no catálogo.
+    // Fotos originais do produto (respeitando o sentido), independente de ter
+    // projeto customizado — são a base sobre a qual as páginas trocadas entram.
+    const originais = !item.prodId ? []
+      : (item.lado === 'Esquerda' && prodFotosProjetoDir[String(item.prodId)] && prodFotosProjetoDir[String(item.prodId)].length)
+        ? prodFotosProjetoDir[String(item.prodId)]
+        : (prodFotosProjeto[String(item.prodId)] || []);
+    // Projeto específico deste item (trocado só para este pedido): cada
+    // PÁGINA que tem substituta usa a substituta; página sem substituta
+    // continua mostrando a foto original do produto — não é tudo-ou-nada.
     if (item.projetoCustom) {
-      const fc = itemFotoProjetoCustom[String(item.id)];
-      return fc ? [fc] : [];
-    }
-    if (!item.prodId) return [];
-    if (item.lado === 'Esquerda') {
-      const fdir = prodFotosProjetoDir[String(item.prodId)];
-      if (fdir && fdir.length) return fdir;
+      const custom = itemFotosProjetoCustom[String(item.id)] || [];
+      if (!custom.length) return originais;
+      const n = Math.max(originais.length, custom.length);
+      const fundidas = [];
+      for (let i = 0; i < n; i++) fundidas.push(custom[i] || originais[i] || '');
+      return fundidas.filter(Boolean);
     }
     // Só mostra "projeto" quando há fotos de projeto REAIS — produtos sem
     // projeto (ex: canos) não exibem preview nem botao "Abrir projeto".
-    return prodFotosProjeto[String(item.prodId)] || [];
+    return originais;
   });
   itensEl.innerHTML = (p.items||[]).map((item,i) => {
     const lines = (item.desc||'').split('\n').filter(Boolean);

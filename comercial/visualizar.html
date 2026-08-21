@@ -686,21 +686,27 @@ function renderOrcamento(o) {
 
   // Itens — flex rows, sem tabela
   itemsFotosProjetoAtual = (o.items || []).map(function(item) {
-    // Projeto específico deste item (trocado só para este orçamento) tem
-    // prioridade sobre o projeto padrão do produto no catálogo.
-    if (item.projetoCustom) {
-      var fc = itemFotoProjetoCustom[String(item.id)];
-      return fc ? [fc] : [];
+    // Fotos originais do produto (respeitando o sentido), independente de ter
+    // projeto customizado — são a base sobre a qual as páginas trocadas entram.
+    var originais = [];
+    if (item.prodId) {
+      var fdir = (item.lado === 'Esquerda') ? prodFotosProjetoDir[String(item.prodId)] : null;
+      originais = (fdir && fdir.length) ? fdir : (prodFotosProjeto[String(item.prodId)] || []);
     }
-    if (!item.prodId) return [];
-    // Projeto do lado ESQUERDO tem prioridade quando existe.
-    if (item.lado === 'Esquerda') {
-      var fdir = prodFotosProjetoDir[String(item.prodId)];
-      if (fdir && fdir.length) return fdir;
+    // Projeto específico deste item (trocado só para este orçamento): cada
+    // PÁGINA que tem substituta usa a substituta; página sem substituta
+    // continua mostrando a foto original do produto — não é tudo-ou-nada.
+    if (item.projetoCustom) {
+      var custom = itemFotosProjetoCustom[String(item.id)] || [];
+      if (!custom.length) return originais;
+      var n = Math.max(originais.length, custom.length);
+      var fundidas = [];
+      for (var i = 0; i < n; i++) fundidas.push(custom[i] || originais[i] || '');
+      return fundidas.filter(Boolean);
     }
     // Só mostra "projeto" quando há fotos de projeto REAIS — produtos sem
     // projeto (ex: canos) não exibem preview nem botao "Abrir projeto".
-    return prodFotosProjeto[String(item.prodId)] || [];
+    return originais;
   });
   var itemsHtml = '';
   for (var i = 0; i < o.items.length; i++) {
@@ -974,15 +980,22 @@ async function carregarFotosProjetoDir(prodId) {
   } catch (e) { return []; }
 }
 
-// Foto de projeto específica de um item (acn_item_projetos/{itemId}) — vendedor
-// pode trocar o projeto só para este orçamento, sem mexer no produto do catálogo.
-var itemFotoProjetoCustom = {};
-async function carregarFotoProjetoItem(itemId) {
-  if (!itemId) return '';
+// Fotos de projeto específicas de um item (acn_item_projetos/{itemId}) — vendedor
+// pode trocar o projeto página a página, só para este orçamento, sem mexer no
+// produto do catálogo. Array index-alinhado com as páginas do projeto
+// (fotosprojeto/fotosprojetoDir); posição vazia = usa a foto original do
+// produto naquela página (ver montagem em itemsFotosProjetoAtual abaixo).
+var itemFotosProjetoCustom = {};
+async function carregarFotosProjetoItem(itemId) {
+  if (!itemId) return [];
   try {
     var snap = await db.collection('acn_item_projetos').doc(String(itemId)).get();
-    return snap.exists ? (snap.data().foto || '') : '';
-  } catch (e) { return ''; }
+    if (!snap.exists) return [];
+    var d = snap.data();
+    if (Array.isArray(d.fotos)) return d.fotos;
+    if (d.foto) return [d.foto];   // formato antigo: uma foto só → vira a substituta da página 1
+    return [];
+  } catch (e) { return []; }
 }
 
 (async function() {
@@ -1033,10 +1046,10 @@ async function carregarFotoProjetoItem(itemId) {
     prodIdsEsq.forEach(function(pid, i) { prodFotosProjetoDir[String(pid)] = fotosDirSnaps[i]; });
 
     // Itens com projeto específico (trocado só para este orçamento) têm prioridade
-    // sobre o projeto padrão do produto.
+    // sobre o projeto padrão do produto, página a página.
     var itensCustom = (orc.items || []).filter(function(it){ return it.projetoCustom && it.id; });
-    var customSnaps = await Promise.all(itensCustom.map(function(it){ return carregarFotoProjetoItem(it.id); }));
-    itensCustom.forEach(function(it, i) { itemFotoProjetoCustom[String(it.id)] = customSnaps[i]; });
+    var customSnaps = await Promise.all(itensCustom.map(function(it){ return carregarFotosProjetoItem(it.id); }));
+    itensCustom.forEach(function(it, i) { itemFotosProjetoCustom[String(it.id)] = customSnaps[i]; });
 
     renderOrcamento(orc);
   } catch(e) {
