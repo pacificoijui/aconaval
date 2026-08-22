@@ -2872,10 +2872,13 @@ async function saveProduto() {
   const eid = document.getElementById('edit-prod-id').value;
   const prodId = eid ? parseInt(eid) : Date.now();
 
+  // Buscado uma vez só: além do upload do GLB, ele também indica o progresso
+  // da gravação no fim da função.
+  const btnSave = document.querySelector('#prod-form-panel button[onclick="saveProduto()"]');
+
   // Upload GLB se houver arquivo novo selecionado
   let modelo3dUrl = currentModelo3dUrl;
   if (currentGlbFile) {
-    const btnSave = document.querySelector('#prod-form-panel button[onclick="saveProduto()"]');
     if (btnSave) { btnSave.disabled = true; btnSave.textContent = '⏳ Enviando modelo 3D…'; }
     try {
       modelo3dUrl = await uploadGlbToStorage(prodId, currentGlbFile);
@@ -2916,8 +2919,45 @@ async function saveProduto() {
       fotoDir: currentFotoDirBase64 || null, fotosprojetoDir: [...currentFotosProjetoDirBase64],
       videos: [...currentVideosProduto] });
   }
-  save(); renderProdutos(); cancelProdForm();
+  // AGUARDA a gravação. Sem o await, o formulário fechava e a tela dizia
+  // "salvo" enquanto a escrita ainda estava a caminho do servidor — e as fotos
+  // de projeto de um produto NOVO só vão pro banco aqui (no upload ainda não
+  // existe id pra gravar). Quem abrisse o produto pra conferir nesse intervalo
+  // lia o banco antes da foto chegar e via o projeto vazio. Também é aqui que
+  // um erro de gravação passava despercebido.
+  renderProdutos();
+  if (btnSave) { btnSave.disabled = true; btnSave.innerHTML = '💾 Salvando…'; }
+  try {
+    await save();
+  } catch(e) {
+    console.error('Erro ao salvar produto:', e);
+  }
+  if (btnSave) { btnSave.disabled = false; btnSave.innerHTML = '💾 Salvar Produto'; }
+  renderProdutos(); cancelProdForm();
 }
+// Abrir o produto A e, antes da resposta chegar, abrir o B fazia a resposta
+// atrasada de A cair dentro do formulário do B. Este contador descarta
+// respostas de uma edição que já não está mais aberta.
+let edicaoToken = 0;
+
+// Aplica ao formulário as fotos que voltaram do servidor.
+//
+// A regra importante é a de baixo: resposta VAZIA não apaga o que já está em
+// memória. Logo depois de criar um produto, a gravação das fotos pode ainda
+// estar a caminho do servidor; ao abrir esse produto para editar, a consulta
+// voltava [] e esse [] sobrescrevia o projeto recém-anexado — na tela E na
+// memória do produto. O resultado era exatamente "salvou mas não aparece", e
+// só voltava depois de recarregar a página. Servidor com fotos manda; servidor
+// vazio com memória cheia significa "ainda não chegou lá", não "não existe".
+function aplicarFotosDoServidor(doServidor, produto, campo, setLocal, redesenhar) {
+  const servidor = Array.isArray(doServidor) ? doServidor : [];
+  const memoria  = Array.isArray(produto[campo]) ? produto[campo] : [];
+  if (!servidor.length && memoria.length) { setLocal([...memoria]); redesenhar(); return; }
+  produto[campo] = servidor;
+  setLocal([...servidor]);
+  redesenhar();
+}
+
 function editProduto(id) {
   const p = produtos.find(x => x.id == id); if (!p) return;
   document.getElementById('inp-nome').value = p.nome;
@@ -2937,19 +2977,26 @@ function editProduto(id) {
   currentFotoBase64 = null; // preserve existing unless changed
   if (p.foto) { applyFotoUI(p.foto); }
   else resetFotoUI();
+  // Mostra JÁ o que está em memória e só depois busca a versão do servidor.
+  // Antes o formulário abria vazio e esperava a rede; num produto recém-criado
+  // isso dava a impressão de que o projeto tinha se perdido.
+  currentFotosProjetoBase64 = Array.isArray(p.fotosprojeto) ? [...p.fotosprojeto] : [];
+  renderProjetoThumbs();
+
+  const meuTokenEdicao = ++edicaoToken;
   // Carrega fotos do projeto do doc separado (garante versão mais recente do servidor)
   carregarFotosProjeto(p.id).then(fotos => {
-    p.fotosprojeto = fotos;
-    currentFotosProjetoBase64 = fotos;
-    renderProjetoThumbs();
-  }).catch(() => {
-    currentFotosProjetoBase64 = Array.isArray(p.fotosprojeto) ? [...p.fotosprojeto] : [];
-    renderProjetoThumbs();
-  });
+    if (meuTokenEdicao !== edicaoToken) return;   // já abriram outro produto
+    aplicarFotosDoServidor(fotos, p, 'fotosprojeto',
+      v => { currentFotosProjetoBase64 = v; }, renderProjetoThumbs);
+  }).catch(() => {});
   carregarFotosClientes(p.id).then(fc => {
-    currentFotosClientesBase64 = fc || [];
-    renderClienteThumbs();
-  });
+    if (meuTokenEdicao !== edicaoToken) return;
+    if ((fc && fc.length) || !currentFotosClientesBase64.length) {
+      currentFotosClientesBase64 = fc || [];
+      renderClienteThumbs();
+    }
+  }).catch(() => {});
   currentVideosProduto = Array.isArray(p.videos) ? [...p.videos] : [];
   renderVideosProdutoLista();
   // Restaura modelo 3D
@@ -2964,9 +3011,13 @@ function editProduto(id) {
   toggleLadoDireito();
   currentFotoDirBase64 = null;
   if (p.fotoDir) applyFotoDirUI(p.fotoDir); else resetFotoDirUI();
-  carregarFotosProjetoDir(p.id)
-    .then(fd => { currentFotosProjetoDirBase64 = fd || []; renderProjetoDirThumbs(); })
-    .catch(() => { currentFotosProjetoDirBase64 = []; renderProjetoDirThumbs(); });
+  currentFotosProjetoDirBase64 = Array.isArray(p.fotosprojetoDir) ? [...p.fotosprojetoDir] : [];
+  renderProjetoDirThumbs();
+  carregarFotosProjetoDir(p.id).then(fd => {
+    if (meuTokenEdicao !== edicaoToken) return;
+    aplicarFotosDoServidor(fd, p, 'fotosprojetoDir',
+      v => { currentFotosProjetoDirBase64 = v; }, renderProjetoDirThumbs);
+  }).catch(() => {});
   toggleProdForm(true);
   document.getElementById('prod-form-panel').scrollIntoView({behavior:'smooth'});
 }
