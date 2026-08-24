@@ -72,6 +72,19 @@ select{font-size:14px;padding:8px 10px;border:1px solid #d0d4d8;border-radius:8p
 .badge-cat{background:#EEEDFE;color:#534AB7;font-size:11px;padding:2px 8px;border-radius:12px;font-weight:600;white-space:nowrap;display:inline-block}
 
 /* SEÇÕES */
+.faixa-card{background:linear-gradient(135deg,#3B6D11,#5C9A22);color:#fff;border-radius:14px;padding:16px 18px;margin-bottom:14px;box-shadow:0 4px 14px rgba(59,109,17,.22)}
+.faixa-card.neutra{background:#fff;color:#333;border:1px solid #eef0f3;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.faixa-card .fx-parabens{font-size:17px;font-weight:800;line-height:1.3;margin-bottom:6px}
+.faixa-card .fx-linha{font-size:13px;line-height:1.7;opacity:.95}
+.faixa-card.neutra .fx-linha{color:#555;opacity:1}
+.faixa-card .fx-barra{height:8px;border-radius:5px;background:rgba(255,255,255,.28);overflow:hidden;margin-top:10px}
+.faixa-card.neutra .fx-barra{background:#eef0f3}
+.faixa-card .fx-barra > div{height:100%;background:#fff;border-radius:5px;transition:width .5s ease}
+.faixa-card.neutra .fx-barra > div{background:#3B6D11}
+.faixa-card .fx-quebra{margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.35);font-size:11.5px;line-height:1.9}
+.faixa-card.neutra .fx-quebra{border-top:1px dashed #e6e9ee;color:#666}
+.faixa-card .fx-quebra .l{display:flex;justify-content:space-between;gap:10px}
+.venda-data{font-size:10.5px;color:#aaa;margin-top:6px}
 .sec-titulo{font-size:12px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin:16px 0 10px;padding-top:14px;border-top:1px solid #f0f2f5}
 .sec-titulo.roxo{color:#534AB7}
 .sec-titulo.laranja{color:#854F0B}
@@ -150,6 +163,7 @@ select{font-size:14px;padding:8px 10px;border:1px solid #d0d4d8;border-radius:8p
       </select>
     </div>
     <div id="metrics-wrap" class="metrics-grid"></div>
+    <div id="faixa-wrap"></div>
     <div class="card">
       <div id="tabela-pedidos"></div>
       <div id="extras"></div>
@@ -176,6 +190,62 @@ const ck=(m,a)=>m+'_'+a;
 const ord=c=>{const p=c.split('_');return parseInt(p[1])*100+MS.indexOf(p[0]);};
 
 let vendedor=null,pedidos=[],adiantamentos=[],produtos=[],bonusLista=[],transfs=[],estornos=[];
+let faixas=null; // faixas progressivas (vem do adm; null = padrão)
+
+/* ===== FAIXAS PROGRESSIVAS (espelha a regra do administrativo) =====
+   Conta o que ESTE vendedor vendeu no mês. O percentual dele é a base e o
+   volume do mês multiplica essa base — progressivo, como faixa de imposto:
+   passar de 100 mil aumenta só a parte que passou. */
+const FAIXAS_PADRAO=[{ate:100000,mult:1},{ate:200000,mult:1.5},{ate:null,mult:2}];
+function ehVariavel(v){return !!v&&(v.tipo||'fixo')==='variavel';}
+function faixasAtivas(){
+  const lista=(Array.isArray(faixas)&&faixas.length?faixas:FAIXAS_PADRAO)
+    .map(f=>({ate:(f.ate==null||f.ate===''||!isFinite(numBR(f.ate)))?null:numBR(f.ate),
+              mult:(isNaN(numBR(f.mult))?1:numBR(f.mult))}))
+    .filter(f=>f.mult>=0);
+  if(!lista.length)return FAIXAS_PADRAO.slice();
+  const comTeto=lista.filter(f=>f.ate!=null).sort((a,b)=>a.ate-b.ate);
+  const semTeto=lista.filter(f=>f.ate==null);
+  const ult=semTeto.length?semTeto[semTeto.length-1]:{mult:comTeto.length?comTeto[comTeto.length-1].mult:1};
+  return comTeto.concat([{ate:null,mult:ult.mult}]);
+}
+function comissaoAteTotal(total,perc){
+  const t=Math.max(0,numBR(total)||0),base=numBR(perc);
+  if(!t||isNaN(base))return 0;
+  let piso=0,soma=0;
+  for(const f of faixasAtivas()){
+    const teto=(f.ate==null)?Infinity:f.ate;
+    const trecho=Math.min(t,teto)-piso;
+    if(trecho>0)soma+=trecho*base/100*f.mult;
+    piso=teto;
+    if(t<=teto)break;
+  }
+  return soma;
+}
+function faixaDoTotal(total){
+  const t=Math.max(0,numBR(total)||0);
+  const fs=faixasAtivas();
+  let piso=0,idx=fs.length-1;
+  for(let i=0;i<fs.length;i++){
+    const teto=(fs[i].ate==null)?Infinity:fs[i].ate;
+    if(t<teto||teto===Infinity){idx=i;break;}
+    piso=teto;
+  }
+  const atual=fs[idx],prox=fs[idx+1]||null;
+  const teto=(atual.ate==null)?null:atual.ate;
+  const primeiro=fs[0]?fs[0].mult:1;
+  return {idx,mult:atual.mult,piso,teto,faixas:fs,
+    bonusPct: primeiro>0?Math.round((atual.mult/primeiro-1)*100):0,
+    proxima: prox?{mult:prox.mult,falta:Math.max(0,teto-t),
+                   bonusPct: primeiro>0?Math.round((prox.mult/primeiro-1)*100):0}:null};
+}
+/* Data em que a comissão foi registrada */
+function dataReg(x){
+  const iso=x&&(x.dtReg||x.cancEm);
+  if(!iso)return '';
+  const d=new Date(iso);
+  return isNaN(d.getTime())?'':d.toLocaleDateString('pt-BR');
+}
 
 /* Normaliza pedidos vindos de qualquer origem (manual ou integração assinar.html).
    Garante que NOVAS VENDAS apareçam: mes(número->nome), ano/val/gid normalizados,
@@ -230,6 +300,12 @@ function comDoPedido(p){
 }
 function comDoEstorno(e){
   const fator=(e.meia&&vendedor&&vendedor.permiteMeia)?0.5:1;
+  // Variável: o estorno foi calculado pelas faixas no dia do cancelamento —
+  // refazer a conta agora daria outro número, porque o mês mudou depois.
+  if(ehVariavel(vendedor)){
+    const cv=numBR(e.com);
+    if(!isNaN(cv))return -Math.abs(cv);
+  }
   // valOrig não passa pela normalização, então pode chegar como texto.
   const vo=numBR(e.valOrig);
   if(!isNaN(vo)&&vendedor)return -parseFloat((vo*numBR(vendedor.perc)/100*fator).toFixed(2));
@@ -317,6 +393,7 @@ if(!nomeUrl){
     if(!d){mostrarErro();return;}
 
     produtos=d.prods||[];
+    faixas=Array.isArray(d.faixas)&&d.faixas.length?d.faixas:null;
     const vs=d.vs||[];
     vendedor=vs.find(v=>(v.nome||'').toLowerCase().trim()===nomeUrl);
     if(!vendedor){mostrarErro();return;}
@@ -382,6 +459,63 @@ function mostrarErro(){
   document.getElementById('erro').style.display='block';
 }
 
+/* Cartão da faixa: é aqui que o vendedor variável vê o bônus conquistado.
+   Só aparece com um mês selecionado — a regra é por mês, somar o ano todo
+   daria a impressão errada de estar numa faixa que ele não está. */
+function renderFaixaCard(f,fMes,fAno){
+  const wrap=document.getElementById('faixa-wrap');
+  if(!wrap)return;
+  if(!ehVariavel(vendedor)||!f){wrap.innerHTML='';return;}
+  const perc=numBR(vendedor.perc);
+  if(isNaN(perc)){wrap.innerHTML='';return;}
+  const total=pedidos.filter(p=>p.mes===fMes&&p.ano===fAno).reduce((s,p)=>s+(numBR(p.val)||0),0);
+  // Mês sem venda nenhuma não ganha cartão — "faltam 100 mil" ali só atrapalha.
+  if(total<=0){wrap.innerHTML='';return;}
+  const info=faixaDoTotal(total);
+  const comTotal=comissaoAteTotal(total,perc);
+  const pctAtual=(perc*info.mult).toLocaleString('pt-BR',{maximumFractionDigits:2});
+  const ganhou=info.bonusPct>0;
+  let h='<div class="faixa-card'+(ganhou?'':' neutra')+'">';
+  if(ganhou){
+    h+='<div class="fx-parabens">🎉 Parabéns! Você atingiu um bônus de '+info.bonusPct+'% na comissão</div>';
+    h+='<div class="fx-linha">Vendendo <strong>'+fmt(total)+'</strong> em '+fMes+' '+fAno+', o que passar de '
+      +fmt(info.piso)+' já está rendendo <strong>'+pctAtual+'%</strong>.</div>';
+  }else{
+    h+='<div class="fx-parabens" style="color:#3B6D11">🎯 Sua faixa de comissão</div>';
+    h+='<div class="fx-linha">Você vendeu <strong>'+fmt(total)+'</strong> em '+fMes+' '+fAno+' e está na faixa de <strong>'+pctAtual+'%</strong>.</div>';
+  }
+  if(info.proxima){
+    h+='<div class="fx-linha">Faltam <strong>'+fmt(info.proxima.falta)+'</strong> para chegar a <strong>'
+      +(perc*info.proxima.mult).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</strong>'
+      +(info.proxima.bonusPct>0?' (bônus de '+info.proxima.bonusPct+'%)':'')+'. 💪</div>';
+    const teto=info.teto||1;
+    const largura=Math.max(0,Math.min(100,((total-info.piso)/(teto-info.piso))*100));
+    h+='<div class="fx-barra"><div style="width:'+largura.toFixed(1)+'%"></div></div>';
+  }else{
+    h+='<div class="fx-linha">Você está na <strong>faixa máxima</strong>. 🚀</div>';
+  }
+  // Quebra por faixa — o aumento vale só para o que passou do limite, e isso
+  // precisa estar visível para o número não parecer errado.
+  let piso=0,linhas='';
+  info.faixas.forEach(fx=>{
+    const teto=(fx.ate==null)?Infinity:fx.ate;
+    const trecho=Math.min(total,teto)-piso;
+    if(trecho>0){
+      linhas+='<div class="l"><span>'+fmt(piso)+(teto===Infinity?' em diante':' a '+fmt(teto))
+        +' × '+(perc*fx.mult).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</span>'
+        +'<strong>'+fmt(trecho*perc/100*fx.mult)+'</strong></div>';
+    }
+    piso=teto;
+  });
+  if(linhas){
+    h+='<div class="fx-quebra">'+linhas
+      +'<div class="l" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.25);font-size:13px">'
+      +'<span><strong>Comissão do mês</strong></span><strong>'+fmt(comTotal)+'</strong></div></div>';
+  }
+  h+='</div>';
+  wrap.innerHTML=h;
+}
+
 function renderConteudo(){
   const f=document.getElementById('f-mes').value;
   let mps=f?pedidos.filter(p=>ck(p.mes,p.ano)===f):pedidos;
@@ -409,7 +543,10 @@ function renderConteudo(){
   // Métricas
   let mh='';
   mh+='<div class="metric"><div class="val">'+mps.length+'</div><div class="lbl">Venda'+(mps.length===1?'':'s')+'</div></div>';
-  mh+='<div class="metric azul"><div class="val">'+fmt(tcPed)+'</div><div class="lbl">Comissão ('+vendedor.perc+'%)</div></div>';
+  const lblCom=ehVariavel(vendedor)&&f
+    ? 'Comissão ('+(tv>0?(tcPed/tv*100).toLocaleString('pt-BR',{maximumFractionDigits:2}):vendedor.perc)+'% no mês)'
+    : 'Comissão ('+vendedor.perc+'%)';
+  mh+='<div class="metric azul"><div class="val">'+fmt(tcPed)+'</div><div class="lbl">'+lblCom+'</div></div>';
   if(test<-0.005){mh+='<div class="metric" style="background:#FCEBEB"><div class="val" style="color:#A32D2D">'+fmt(test)+'</div><div class="lbl">Estornos (cancel.)</div></div>';}
   if(tb>0){mh+='<div class="metric roxo" style="background:#F5F3FF"><div class="val" style="color:#534AB7">'+fmt(tb)+'</div><div class="lbl">Bônus números</div></div>';}
   if(ta>0){mh+='<div class="metric laranja" style="background:#FFF4E0"><div class="val">'+fmt(ta)+'</div><div class="lbl">Adiantamentos</div></div>';}
@@ -420,6 +557,7 @@ function renderConteudo(){
     mh+='<div class="metric verde full"><div class="val">'+fmt(tl)+'</div><div class="lbl">💰 A receber (líquido)</div></div>';
   }
   document.getElementById('metrics-wrap').innerHTML=mh;
+  renderFaixaCard(f,fMes,fAno);
 
   // Atualiza total de vendas no topo
   const topoDiv=document.getElementById('topo-vendas');
@@ -460,7 +598,10 @@ function renderConteudo(){
       tp+='<div class="venda-valores">';
       tp+='<div class="vitem"><span class="lbl">Valor</span><span class="num">'+fmt(p.val)+'</span></div>';
       tp+='<div class="vitem comissao"><span class="lbl">Comissão'+(p.meia?' <span class="badge-meia">½</span>':'')+'</span><span class="num">'+fmt(com)+'</span></div>';
-      tp+='</div></div>';
+      tp+='</div>';
+      const dr=dataReg(p);
+      if(dr)tp+='<div class="venda-data">🗓️ Comissão registrada em '+dr+'</div>';
+      tp+='</div>';
     });
     const totComissao=mps.reduce((s,p)=>s+comDoPedido(p),0);
     tp+='<div class="venda-total"><div class="venda-valores">';
@@ -478,7 +619,7 @@ function renderConteudo(){
     ex+='<div class="titulo">Bônus por números que entraram</div>';
     mbs.forEach(b=>{
       ex+='<div class="item-row">';
-      ex+='<div class="desc">'+b.obs+' <span style="font-size:11px;color:#888">('+b.mes.substring(0,3)+'/'+b.ano+')</span> — '+b.qtd.toLocaleString('pt-BR')+' nºs</div>';
+      ex+='<div class="desc">'+b.obs+' <span style="font-size:11px;color:#888">('+b.mes.substring(0,3)+'/'+b.ano+(dataReg(b)?' • registrado em '+dataReg(b):'')+')</span> — '+b.qtd.toLocaleString('pt-BR')+' nºs</div>';
       ex+='<div class="val roxo">'+fmt(b.val)+'</div>';
       ex+='</div>';
     });
@@ -491,7 +632,7 @@ function renderConteudo(){
     ex+='<div class="titulo">Adiantamentos recebidos</div>';
     mas.forEach(a=>{
       ex+='<div class="item-row">';
-      ex+='<div class="desc">'+a.obs+' <span style="font-size:11px;color:#888">('+a.mes.substring(0,3)+'/'+a.ano+')</span></div>';
+      ex+='<div class="desc">'+a.obs+' <span style="font-size:11px;color:#888">('+a.mes.substring(0,3)+'/'+a.ano+(dataReg(a)?' • registrado em '+dataReg(a):'')+')</span></div>';
       ex+='<div class="val laranja">− '+fmt(a.val)+'</div>';
       ex+='</div>';
     });

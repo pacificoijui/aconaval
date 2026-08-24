@@ -770,6 +770,16 @@ textarea{font-family:inherit}
       </div>
       <div id="lista-v" style="margin-top:12px"><p class="empty">Nenhum vendedor cadastrado.</p></div>
     </div>
+    <div class="card" id="card-faixas">
+      <h3>🎯 Faixas de comissão (vendedores variáveis)</h3>
+      <p style="font-size:12px;color:#888;margin-bottom:12px">Conta <strong>o que cada vendedor variável vendeu no mês</strong> — não as vendas totais do site. O percentual dele é a base; a faixa multiplica essa base. É progressivo: passar de uma faixa aumenta só a parte que passou.</p>
+      <div id="lista-faixas"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-primary" onclick="salvarFaixas()">💾 Salvar faixas</button>
+        <button class="btn" onclick="restaurarFaixas()">↩︎ Voltar ao padrão</button>
+      </div>
+      <div id="faixas-exemplo" style="margin-top:12px"></div>
+    </div>
     <div class="card">
       <h3>Produtos cadastrados</h3>
       <div class="row">
@@ -1054,6 +1064,7 @@ function normalizarPedidos(lista){
 }
 const HEXCORES=['#185FA5','#3B6D11','#BA7517','#D85A30','#7F77DD','#1D9E75'];
 let vs=[],ps=[],ads=[],prods=[],anus=[],sts={},bonus=[],transfs=[],ta=null;
+let faixas=null; // faixas progressivas de comissão dos vendedores variáveis (null = padrão)
 let anunv={};   // config de anúncios por vendedor ('v'+vid -> {num, dia, prods:[], ufs:[]})
 let metaAcc=''; // ID da conta Meta Ads (act_...) — sincronizado na nuvem
 let metaSpend=null; // gasto real puxado da Meta (transitório, não salvo)
@@ -1082,6 +1093,17 @@ const REF = db.ref('dados');
 // que ainda salve com set() no nó inteiro não consegue apagá-las.
 const APRV = db.ref('aprovacoes');
 
+/* Assinatura do que está na tela. O listener em tempo real do Firebase também
+   dispara com o ECO da gravação que este próprio computador acabou de fazer —
+   sem isso, todo salvar() redesenhava o sistema inteiro de novo à toa. */
+let ultimaAssinatura = null;
+function assinaturaDados(d) {
+  try {
+    return JSON.stringify([d.vs, d.ps, d.ads, d.prods, d.anus, d.sts, d.bonus,
+                           d.transfs, d.pgtos, d.comsts, d.compag, d.anunv, d.metaAcc, d.faixas]);
+  } catch(_) { return null; }
+}
+
 // Status de conexão
 let fbOnline = false;
 db.ref('.info/connected').on('value', snap => {
@@ -1098,10 +1120,12 @@ db.ref('.info/connected').on('value', snap => {
 });
 
 function salvar() {
+  // Comissão dos variáveis sempre coerente com as faixas antes de ir pra nuvem
+  recalcFaixas();
   // update() em vez de set(): grava só as chaves listadas e PRESERVA o nó
   // 'pends' (aprovações do painel de entregas), que é gerenciado por
   // operações child() dos dois lados — evita sobrescrever dados de terceiros.
-  const dados = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, comMigrado, anunv, metaAcc};
+  const dados = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, comMigrado, anunv, metaAcc, faixas: faixasAtivas()};
   REF.update(dados)
     .then(() => {
       const si = document.getElementById('save-info');
@@ -1114,7 +1138,7 @@ function salvar() {
       console.error('Erro ao salvar:', e);
       // fallback localStorage (backup completo, sem eval)
       try {
-        const mapa = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc};
+        const mapa = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas: faixasAtivas()};
         Object.keys(mapa).forEach(k => localStorage.setItem('an_'+k, JSON.stringify(mapa[k])));
       } catch(_) {}
       const si = document.getElementById('save-info');
@@ -1148,6 +1172,8 @@ function carregar() {
         comMigrado = !!d.comMigrado;
         anunv = d.anunv || {};
         metaAcc = d.metaAcc || '';
+        faixas = Array.isArray(d.faixas) && d.faixas.length ? d.faixas : null;
+        recalcFaixas();
       } else {
         // Tenta recuperar do localStorage se Firebase estiver vazio
         try {
@@ -1157,6 +1183,8 @@ function carregar() {
           bonus = ler('bonus', bonus); transfs = ler('transfs', transfs); pgtos = ler('pgtos', pgtos);
           comsts = ler('comsts', comsts); compag = ler('compag', compag);
           anunv = ler('anunv', anunv); metaAcc = ler('metaAcc', metaAcc);
+        faixas = ler('faixas', faixas); recalcFaixas();
+          faixas = ler('faixas', faixas); recalcFaixas();
           // Se tinha dados locais, migra pro Firebase
           if (vs.length || ps.length) salvar();
         } catch(_) {}
@@ -1168,7 +1196,8 @@ function carregar() {
       // Migração única: pedidos que já estavam 'entregue' entram como comissão paga
       migrarComissoesPagas();
       // Renderiza tudo após carregar
-      renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
+      ultimaAssinatura = assinaturaDados({vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas});
+      renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); renderFaixas(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
     })
     .catch(e => {
       console.error('Erro ao carregar:', e);
@@ -1180,10 +1209,11 @@ function carregar() {
         bonus = ler('bonus', bonus); transfs = ler('transfs', transfs); pgtos = ler('pgtos', pgtos);
         comsts = ler('comsts', comsts); compag = ler('compag', compag);
         anunv = ler('anunv', anunv); metaAcc = ler('metaAcc', metaAcc);
+        faixas = ler('faixas', faixas); recalcFaixas();
       } catch(_) {}
       document.querySelector('.container').style.opacity = '1';
       document.querySelector('.container').style.pointerEvents = 'auto';
-      renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
+      renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); renderFaixas(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
     });
 
   // Escuta mudanças em tempo real (outro computador / painel de entregas salvou)
@@ -1204,11 +1234,17 @@ function carregar() {
     comMigrado = !!d.comMigrado;
     anunv = d.anunv || {};
     metaAcc = d.metaAcc || '';
+    faixas = Array.isArray(d.faixas) && d.faixas.length ? d.faixas : null;
+    recalcFaixas();
+    // Eco da nossa própria gravação: os dados já estão na tela, não redesenha.
+    const assin = assinaturaDados({vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas});
+    if (assin && assin === ultimaAssinatura) return;
+    ultimaAssinatura = assin;
     // Se o usuário está digitando em algum campo (ex.: pagamento na tabela de
     // entregas ou busca), adia o re-render dessa área para não perder o texto.
     const ae = document.activeElement;
     const digitando = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT') && ae.closest('.page');
-    renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
+    renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); renderFaixas(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
     if (!digitando) {
       if (document.getElementById('page-entregas').classList.contains('active')) renderEntregas();
       if (document.getElementById('page-pedidos').classList.contains('active')) renderPedidos();
@@ -1245,6 +1281,125 @@ function acharVend(vid){
   if(vid==null)return null;
   return vs.find(x=>String(x.id)===String(vid))||null;
 }
+/* ===================== FAIXAS PROGRESSIVAS DE COMISSÃO =====================
+   Vale só para vendedor VARIÁVEL e conta o que ELE vendeu no mês (não as
+   vendas totais do site). O percentual cadastrado do vendedor é a BASE; o
+   quanto ele vendeu no mês multiplica essa base:
+
+     até 100 mil ......... 1,0× a base  (base 1%  ->  1%)
+     de 100 a 200 mil .... 1,5× a base  (base 1%  ->  1,5%)  = bônus de 50%
+     acima de 200 mil .... 2,0× a base  (base 1%  ->  2%)    = bônus de 100%
+
+   É PROGRESSIVO, como faixa de imposto: passar de 100 mil aumenta só a parte
+   que passou, não o mês inteiro. Quem vendeu 250 mil com base de 1% recebe
+   100k×1% + 100k×1,5% + 50k×2% = R$ 3.500,00.
+
+   As faixas são editáveis em Configurações e ficam salvas na nuvem. */
+const FAIXAS_PADRAO=[{ate:100000,mult:1},{ate:200000,mult:1.5},{ate:null,mult:2}];
+function ehVariavel(v){return !!v&&(v.tipo||'fixo')==='variavel';}
+/* Faixas válidas, sempre ordenadas e terminando em "daí pra cima" (ate:null) */
+function faixasAtivas(){
+  const lista=(Array.isArray(faixas)&&faixas.length?faixas:FAIXAS_PADRAO)
+    .map(f=>({ate:(f.ate==null||f.ate===''||!isFinite(numBR(f.ate)))?null:numBR(f.ate),
+              mult:(isNaN(numBR(f.mult))?1:numBR(f.mult))}))
+    .filter(f=>f.mult>=0);
+  if(!lista.length)return FAIXAS_PADRAO.slice();
+  const comTeto=lista.filter(f=>f.ate!=null).sort((a,b)=>a.ate-b.ate);
+  const semTeto=lista.filter(f=>f.ate==null);
+  const ult=semTeto.length?semTeto[semTeto.length-1]:{ate:null,mult:comTeto.length?comTeto[comTeto.length-1].mult:1};
+  return comTeto.concat([{ate:null,mult:ult.mult}]);
+}
+/* Comissão TOTAL do mês para um volume vendido, somando faixa por faixa. */
+function comissaoAteTotal(total,perc){
+  const t=Math.max(0,numBR(total)||0),base=numBR(perc);
+  if(!t||isNaN(base))return 0;
+  let piso=0,soma=0;
+  for(const f of faixasAtivas()){
+    const teto=(f.ate==null)?Infinity:f.ate;
+    const trecho=Math.min(t,teto)-piso;
+    if(trecho>0)soma+=trecho*base/100*f.mult;
+    piso=teto;
+    if(t<=teto)break;
+  }
+  return soma;
+}
+/* Em que faixa o mês está, quanto falta para a próxima e o bônus atual. */
+function faixaDoTotal(total){
+  const t=Math.max(0,numBR(total)||0);
+  const fs=faixasAtivas();
+  let piso=0,idx=fs.length-1;
+  for(let i=0;i<fs.length;i++){
+    const teto=(fs[i].ate==null)?Infinity:fs[i].ate;
+    if(t<teto||teto===Infinity){idx=i;break;}
+    piso=teto;
+  }
+  const atual=fs[idx],prox=fs[idx+1]||null;
+  const teto=(atual.ate==null)?null:atual.ate;
+  const primeiro=fs[0]?fs[0].mult:1;
+  return {
+    idx, mult:atual.mult, piso, teto, faixas:fs,
+    // "bônus de 50%" = quanto a faixa atual rende a mais que a primeira
+    bonusPct: primeiro>0?Math.round((atual.mult/primeiro-1)*100):0,
+    proxima: prox?{mult:prox.mult,falta:Math.max(0,teto-t),
+                   bonusPct: primeiro>0?Math.round((prox.mult/primeiro-1)*100):0}:null
+  };
+}
+/* Quanto o vendedor vendeu no mês (só vendas dele, sem cancelados/estornos e
+   sem contar duas vezes um pedido dividido entre vendedores). */
+function totalVendidoMes(vid,mes,ano,ignorarGid){
+  const visto={};
+  return ps.filter(p=>String(p.vid)===String(vid)&&p.mes===mes&&p.ano===ano
+                     &&!p.cancelado&&p.tipo!=='estorno'
+                     &&(ignorarGid==null||String(p.gid)!==String(ignorarGid)))
+    .filter(p=>{if(visto[p.gid])return false;visto[p.gid]=true;return true;})
+    .reduce((s,p)=>s+(numBR(p.val)||0),0);
+}
+/* Reescreve a comissão de todas as vendas dos vendedores VARIÁVEIS aplicando
+   as faixas. Roda antes de salvar e depois de carregar, então toda tela (adm,
+   PDF e painel do vendedor) lê o mesmo número já pronto. Vendedor fixo não é
+   tocado: continua com percentual único. */
+function recalcFaixas(){
+  const grupos={};
+  ps.forEach(p=>{
+    if(p.tipo==='estorno'||p.cancelado)return;
+    const v=acharVend(p.vid);
+    if(!ehVariavel(v))return;
+    const k=p.vid+'|'+p.ano+'|'+p.mes;
+    (grupos[k]=grupos[k]||[]).push(p);
+  });
+  Object.keys(grupos).forEach(k=>{
+    const lista=grupos[k];
+    const v=acharVend(lista[0].vid);
+    const perc=numBR(v.perc);
+    if(isNaN(perc))return;
+    // Ordem cronológica: a venda que fez o mês passar de 100 mil é que puxa a
+    // faixa maior, e as seguintes já nascem na faixa nova.
+    lista.sort((a,b)=>(Number(a.gid)||0)-(Number(b.gid)||0));
+    let acc=0;
+    lista.forEach(p=>{
+      const val=numBR(p.val)||0;
+      const bruto=comissaoAteTotal(acc+val,perc)-comissaoAteTotal(acc,perc);
+      const fator=(p.meia&&v.permiteMeia)?0.5:1;
+      p.com=parseFloat((bruto*fator).toFixed(2));
+      p.percEfetivo=val>0?parseFloat((bruto/val*100).toFixed(4)):perc;
+      acc+=val;
+    });
+  });
+}
+/* Data em que a comissão foi registrada, no formato dd/mm/aaaa. */
+function dataReg(x){
+  const iso=x&&(x.dtReg||x.cancEm);
+  if(!iso)return '';
+  const d=new Date(iso);
+  return isNaN(d.getTime())?'':d.toLocaleDateString('pt-BR');
+}
+function dataRegHora(x){
+  const iso=x&&(x.dtReg||x.cancEm);
+  if(!iso)return '';
+  const d=new Date(iso);
+  return isNaN(d.getTime())?'':d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+
 /* Nunca exibe "R$ NaN" — dado ruim vira R$ 0,00 em vez de sujar a tela. */
 const fmt=v=>{const n=numBR(v);return 'R$ '+(isNaN(n)?0:n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
 const ck=(m,a)=>m+'_'+a;
@@ -1269,6 +1424,148 @@ function setPage(p){
   if(p==='dashboard')renderDashboard();
   if(p==='pedidos')renderPedidos();
   if(p==='entregas')renderEntregas();
+}
+
+/* ========== EDITOR DAS FAIXAS DE COMISSÃO ========== */
+let faixasEdit=null; // rascunho enquanto o usuário mexe (só vira oficial ao salvar)
+function faixasDoEditor(){return faixasEdit||faixasAtivas().map(f=>({ate:f.ate,mult:f.mult}));}
+function lerFaixasDaTela(){
+  const linhas=[...document.querySelectorAll('#lista-faixas .faixa-row')];
+  if(!linhas.length)return null;
+  return linhas.map((l,i)=>{
+    const ate=l.querySelector('.fx-ate'),mult=l.querySelector('.fx-mult');
+    const ultima=i===linhas.length-1;
+    return {ate:ultima?null:(numBR(ate&&ate.value)||0),mult:numBR(mult&&mult.value)};
+  });
+}
+function renderFaixas(){
+  const el=document.getElementById('lista-faixas');
+  if(!el)return;
+  // Não redesenha por baixo de quem está digitando (o listener em tempo real
+  // do Firebase dispara render a cada gravação de outro computador).
+  const ae=document.activeElement;
+  if(ae&&ae.closest&&ae.closest('#lista-faixas'))return;
+  const fs=faixasDoEditor();
+  const base=(variaveis()[0]||{}).perc;
+  const pctBase=isNaN(numBR(base))?1:numBR(base);
+  let h='';
+  fs.forEach((f,i)=>{
+    const ultima=i===fs.length-1;
+    const piso=i===0?0:((fs[i-1].ate==null)?0:fs[i-1].ate);
+    const efetivo=(pctBase*(numBR(f.mult)||0)).toLocaleString('pt-BR',{maximumFractionDigits:2});
+    const bonus=Math.round(((numBR(f.mult)||0)/(numBR(fs[0].mult)||1)-1)*100);
+    h+='<div class="row faixa-row" style="align-items:flex-end;gap:8px;margin-bottom:8px">';
+    h+='<div class="field"><div class="label">'+(ultima?'Acima de '+fmt(piso):'De '+fmt(piso)+' até (R$)')+'</div>'
+      +'<input type="number" class="fx-ate" step="1000" min="0" value="'+(f.ate==null?'':f.ate)+'"'
+      +(ultima?' disabled placeholder="sem limite"':'')+' oninput="onFaixaInput()"/></div>';
+    h+='<div class="field"><div class="label">Multiplica a base por</div>'
+      +'<input type="number" class="fx-mult" step="0.05" min="0" value="'+f.mult+'" oninput="onFaixaInput()"/></div>';
+    h+='<div class="field"><div class="label">Fica em</div>'
+      +'<div style="padding:8px 0;font-weight:600;color:#185FA5">'+efetivo+'%'
+      +(bonus>0?' <span style="color:#3B6D11;font-size:12px">(+'+bonus+'% de bônus)</span>':'')+'</div></div>';
+    h+=(fs.length>2&&!ultima)?'<button class="del" onclick="removerFaixa('+i+')" title="Remover faixa">✕</button>':'<span style="width:24px"></span>';
+    h+='</div>';
+  });
+  h+='<button class="btn" style="font-size:12px" onclick="adicionarFaixa()">+ Adicionar faixa</button>';
+  el.innerHTML=h;
+  renderExemploFaixas();
+}
+function onFaixaInput(){
+  faixasEdit=lerFaixasDaTela();
+  renderExemploFaixas();
+}
+function renderExemploFaixas(){
+  const el=document.getElementById('faixas-exemplo');
+  if(!el)return;
+  const fs=(faixasEdit&&faixasEdit.length?faixasEdit:faixasAtivas());
+  const salvo=faixas;faixas=fs; // simula sem gravar
+  const base=(variaveis()[0]||{}).perc;
+  const pctBase=isNaN(numBR(base))?1:numBR(base);
+  const ultimoTeto=fs.length>1?(fs[fs.length-2].ate||0):100000;
+  const exemplo=ultimoTeto*1.25;
+  const total=comissaoAteTotal(exemplo,pctBase);
+  const info=faixaDoTotal(exemplo);
+  faixas=salvo;
+  el.innerHTML='<div style="background:#F5F7FA;border-radius:8px;padding:10px 12px;font-size:12px;color:#555;line-height:1.7">'
+    +'<strong>Exemplo</strong> — um vendedor com base de '+pctBase.toLocaleString('pt-BR',{maximumFractionDigits:2})+'% que vender '
+    +'<strong>'+fmt(exemplo)+'</strong> no mês recebe <strong style="color:#185FA5">'+fmt(total)+'</strong>'
+    +' (equivale a '+(exemplo>0?(total/exemplo*100).toLocaleString('pt-BR',{maximumFractionDigits:2}):'0')+'% do total)'
+    +(info.bonusPct>0?' — bônus de '+info.bonusPct+'% na última faixa':'')
+    +'</div>';
+}
+function adicionarFaixa(){
+  const fs=lerFaixasDaTela()||faixasDoEditor();
+  const penult=fs.length>1?(fs[fs.length-2].ate||0):0;
+  fs.splice(fs.length-1,0,{ate:penult+100000,mult:(numBR(fs[fs.length-1].mult)||1)});
+  faixasEdit=fs;renderFaixas();
+}
+function removerFaixa(i){
+  const fs=lerFaixasDaTela()||faixasDoEditor();
+  if(fs.length<=2){alert('Precisa de pelo menos uma faixa com limite e uma "acima disso".');return;}
+  fs.splice(i,1);faixasEdit=fs;renderFaixas();
+}
+function salvarFaixas(){
+  const fs=lerFaixasDaTela();
+  if(!fs||fs.length<2){alert('Configure pelo menos duas faixas.');return;}
+  for(let i=0;i<fs.length-1;i++){
+    if(!(fs[i].ate>0)){alert('Faixa '+(i+1)+': informe até quanto ela vale.');return;}
+    if(i>0&&fs[i].ate<=fs[i-1].ate){alert('Faixa '+(i+1)+': o limite tem que ser maior que o da faixa anterior.');return;}
+    if(isNaN(fs[i].mult)||fs[i].mult<0){alert('Faixa '+(i+1)+': multiplicador inválido.');return;}
+  }
+  if(isNaN(fs[fs.length-1].mult)||fs[fs.length-1].mult<0){alert('Última faixa: multiplicador inválido.');return;}
+  faixas=fs;faixasEdit=null;
+  salvar();renderFaixas();renderV();renderRel();renderF();
+  alert('✅ Faixas salvas. As comissões dos vendedores variáveis já foram recalculadas.');
+}
+function restaurarFaixas(){
+  if(!confirm('Voltar para as faixas padrão (até 100 mil 1×, 100 a 200 mil 1,5×, acima 2×)?'))return;
+  faixas=null;faixasEdit=null;
+  salvar();renderFaixas();renderV();renderRel();renderF();
+}
+
+/* Cartão que mostra em que faixa o vendedor variável está no mês, quanto
+   falta pra próxima e quanto cada faixa rendeu. */
+function boxFaixaVend(v,mes,ano){
+  if(!ehVariavel(v))return '';
+  const perc=numBR(v.perc);
+  if(isNaN(perc))return '';
+  const total=totalVendidoMes(v.id,mes,ano);
+  if(total<=0)return '';
+  const info=faixaDoTotal(total);
+  const comTotal=comissaoAteTotal(total,perc);
+  let h='<div class="section-lbl" style="color:#3B6D11">🎯 Faixa de comissão do mês</div>';
+  h+='<div style="background:#F2F8ED;border:1px solid #DCEBD0;border-radius:10px;padding:12px 14px;margin-bottom:8px">';
+  if(info.bonusPct>0){
+    h+='<div style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:6px">🎉 Bônus de '+info.bonusPct+'% na comissão ativo</div>';
+  }
+  h+='<div style="font-size:12px;color:#555;line-height:1.8">'
+    +'Vendeu <strong>'+fmt(total)+'</strong> em '+mes+' '+ano+' · faixa atual: <strong>'
+    +(perc*info.mult).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</strong>'
+    +' · comissão do mês: <strong style="color:#185FA5">'+fmt(comTotal)+'</strong></div>';
+  if(info.proxima){
+    h+='<div style="font-size:12px;color:#666;margin-top:4px">Faltam <strong>'+fmt(info.proxima.falta)+'</strong> para a próxima faixa ('
+      +(perc*info.proxima.mult).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%'
+      +(info.proxima.bonusPct>0?', bônus de '+info.proxima.bonusPct+'%':'')+').</div>';
+    const teto=info.teto||1;
+    const pctBarra=Math.max(0,Math.min(100,((total-info.piso)/(teto-info.piso))*100));
+    h+='<div style="height:6px;background:#DCEBD0;border-radius:4px;margin-top:8px;overflow:hidden">'
+      +'<div style="height:100%;width:'+pctBarra.toFixed(1)+'%;background:#3B6D11"></div></div>';
+  }
+  // Quebra por faixa — a conta fica visível, não é caixa-preta
+  let piso=0,linhas='';
+  info.faixas.forEach(f=>{
+    const teto=(f.ate==null)?Infinity:f.ate;
+    const trecho=Math.min(total,teto)-piso;
+    if(trecho>0){
+      linhas+='<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-top:3px">'
+        +'<span>'+fmt(piso)+(teto===Infinity?' em diante':' a '+fmt(teto))+' → '+(perc*f.mult).toLocaleString('pt-BR',{maximumFractionDigits:2})+'% sobre '+fmt(trecho)+'</span>'
+        +'<strong>'+fmt(trecho*perc/100*f.mult)+'</strong></div>';
+    }
+    piso=teto;
+  });
+  if(linhas)h+='<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #CFE0C2">'+linhas+'</div>';
+  h+='</div>';
+  return h;
 }
 
 /* ========== PRODUTOS ========== */
@@ -1466,15 +1763,22 @@ function alvosComissao(vidsSel){
   return Object.values(map);
 }
 function pushVenda(gid,base,alvos){
+  // Carimbo de quando a comissão foi registrada. Numa edição o carimbo antigo
+  // vem em base.dtReg e é preservado — a data é do registro, não da última
+  // mexida no pedido.
+  const dtReg=base.dtReg||new Date().toISOString();
   alvos.forEach((v,i)=>{
     // "Metade da comissão" só reduz de fato quem está marcado como elegível
     // (v.permiteMeia) — os demais vendedores do mesmo pedido recebem cheio.
     const fator=(base.meia&&v.permiteMeia)?0.5:1;
     ps.push(Object.assign({},base,{
-      id:gid+i,gid,vid:v.id,vendedorNome:v.nome,
+      id:gid+i,gid,vid:v.id,vendedorNome:v.nome,dtReg,
       com:parseFloat((Number(base.val)*v.perc/100*fator).toFixed(2))
     }));
   });
+  // Vendedor variável não tem percentual único: a comissão sai das faixas do
+  // mês dele, então precisa ser refeita com a venda nova já dentro da conta.
+  recalcFaixas();
 }
 
 /* Lê os ids marcados numa caixa de checkboxes de vendedor (multi-seleção) */
@@ -1535,6 +1839,16 @@ function cancelUnique(){
 function comEstornoPedido(p){
   const vv=acharVend(p.vid);
   const fator=(p.meia&&vv&&vv.permiteMeia)?0.5:1;
+  if(ehVariavel(vv)){
+    // Faixa progressiva: o estorno é exatamente o que o mês do vendedor perde
+    // ao tirar esta venda (comissão do mês com ela − comissão do mês sem ela).
+    // Tirar 30 mil de quem vendeu 220 mil devolve a parte da faixa de cima.
+    const semEla=totalVendidoMes(p.vid,p.mes,p.ano,p.gid);
+    const comEla=semEla+(numBR(p.val)||0);
+    const perc=numBR(vv.perc);
+    const dif=comissaoAteTotal(comEla,perc)-comissaoAteTotal(semEla,perc);
+    return parseFloat((dif*fator).toFixed(2));
+  }
   if(vv)return parseFloat((numBR(p.val)*numBR(vv.perc)/100*fator).toFixed(2));
   const c=numBR(p.com);
   return isNaN(c)?0:c;
@@ -1545,6 +1859,13 @@ function comEstornoPedido(p){
 function comEstornoRegistro(e){
   const vv=acharVend(e.vid);
   const fator=(e.meia&&vv&&vv.permiteMeia)?0.5:1;
+  // Variável: o estorno foi calculado pelas faixas do mês no momento do
+  // cancelamento. Recalcular agora daria outro número (o mês mudou depois),
+  // então vale o valor congelado no registro.
+  if(ehVariavel(vv)){
+    const cv=numBR(e.com);
+    if(!isNaN(cv))return -Math.abs(cv);
+  }
   // valOrig não passa pela normalização, então pode chegar como texto.
   const vo=numBR(e.valOrig);
   if(!isNaN(vo)&&vv)return -parseFloat((vo*numBR(vv.perc)/100*fator).toFixed(2));
@@ -1601,7 +1922,7 @@ function cancelarPedido(gidArg){
     p.cancelado=true;p.cancEm=hj.toISOString();p.cancMes=cMes;p.cancAno=cAno;
     const eid='est'+stamp+'_'+i;
     const vv=acharVend(p.vid);
-    ps.push({id:eid,gid:eid,tipo:'estorno',vid:p.vid,num:p.num,cancGid:gid,
+    ps.push({id:eid,gid:eid,tipo:'estorno',vid:p.vid,num:p.num,cancGid:gid,dtReg:hj.toISOString(),
       prod:p.prod,cid:p.cid,uf:p.uf,val:0,valOrig:Number(p.val)||0,perc:vv?vv.perc:null,meia:p.meia,
       com:-comEstornoPedido(p),mes:cMes,ano:cAno,
       obs:'Cancelamento do pedido '+p.num});
@@ -1748,7 +2069,7 @@ function salvarEditPedido(){
   // Isso permite REALMENTE trocar quem recebe (o bug anterior só editava
   // campos, então o vínculo nunca mudava).
   ps=ps.filter(p=>!(p.gid===gid&&p.tipo!=='estorno'));
-  const base={num,prod,cid,uf,val,mes,ano,meia,
+  const base={num,prod,cid,uf,val,mes,ano,meia,dtReg:meta.dtReg,
     clienteNome:meta.clienteNome,origem:meta.origem,assinadoPor:meta.assinadoPor,assinadoEm:meta.assinadoEm};
   pushVenda(gid,base,alvosNovos);
 
@@ -1771,7 +2092,7 @@ function addAdt(){
   const val=parseFloat(document.getElementById('a-val').value);
   const obs=document.getElementById('a-obs').value.trim()||'Adiantamento de comissão';
   if(!vid||isNaN(val)||val<=0){alert('Selecione o vendedor e informe o valor.');return;}
-  ads.push({id:Date.now(),vid,val,obs,mes:refMes(),ano:refAno()});
+  ads.push({id:Date.now(),vid,val,obs,mes:refMes(),ano:refAno(),dtReg:new Date().toISOString()});
   document.getElementById('a-val').value='';document.getElementById('a-obs').value='';
   salvar();renderRel();
 }
@@ -1786,7 +2107,7 @@ function addBonus(){
   const v=acharVend(vid);
   if(!v||!v.bonus||v.bonus<=0){alert('Este vendedor não tem bônus por número configurado.\nConfigure em ⚙️ Configurações.');return;}
   const val=parseFloat((qtd*v.bonus).toFixed(2));
-  bonus.push({id:Date.now(),vid,qtd,val,obs,mes:refMes(),ano:refAno()});
+  bonus.push({id:Date.now(),vid,qtd,val,obs,mes:refMes(),ano:refAno(),dtReg:new Date().toISOString()});
   document.getElementById('b-qtd').value='';document.getElementById('b-obs').value='';
   salvar();renderRel();
 }
@@ -2245,7 +2566,9 @@ function renderRel(){
   let ma=ads.filter(a=>a.vid===v.id);if(f)ma=ma.filter(a=>ck(a.mes,a.ano)===f);
   let mb=bonus.filter(b=>b.vid===v.id);if(f)mb=mb.filter(b=>ck(b.mes,b.ano)===f);
   const unique=uniquePedidos(mp);
-  const tcPed=mp.reduce((s,p)=>s+(Number(p.com)||0),0);
+  // Mesma regra de soma do resto do sistema: registro sem `com` legível é
+  // recalculado em vez de virar R$ 0,00 escondido no total.
+  const tcPed=somaComissoes(mp);
   const test=mest.reduce((s,p)=>s+comEstornoRegistro(p),0);
   const tc=tcPed+test;
   const tb=mb.reduce((s,b)=>s+(Number(b.val)||0),0);
@@ -2257,7 +2580,8 @@ function renderRel(){
 
   let h='<div class="card">';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
-  h+='<div><span style="font-size:16px;font-weight:600">'+v.nome+'</span> <span style="font-size:13px;color:#666"> — '+v.perc+'% — '+lbl+'</span></div>';
+  const selo=ehVariavel(v)?'<span class="badge-m" style="background:#EAF3E4;color:#3B6D11;margin-left:6px">variável · faixas</span>':'';
+  h+='<div><span style="font-size:16px;font-weight:600">'+v.nome+'</span> <span style="font-size:13px;color:#666"> — base '+v.perc+'% — '+lbl+'</span>'+selo+'</div>';
   h+='<button class="btn btn-primary" onclick="pdfVendedor('+v.id+')">📄 Gerar PDF</button></div>';
   h+='<div class="row" style="margin-bottom:16px;gap:8px">';
   h+='<div class="metric"><div class="val">'+unique.length+'</div><div class="lbl">Pedidos</div></div>';
@@ -2278,23 +2602,28 @@ function renderRel(){
   }
   h+='</div>';
 
+  if(f&&ehVariavel(v)){h+=boxFaixaVend(v,f.split('_')[0],parseInt(f.split('_')[1]));}
+
   if(!unique.length){h+='<p class="empty">Nenhum pedido neste filtro.</p>';}
   else{
     h+='<div class="section-lbl">Pedidos</div>';
-    h+='<table><thead><tr><th>Nº</th><th>Mês</th><th>Produto</th><th>Cidade</th><th>UF</th><th style="text-align:right">Valor</th><th style="text-align:right">Comissão</th><th></th></tr></thead><tbody>';
+    h+='<table><thead><tr><th>Nº</th><th>Mês</th><th>Registrado</th><th>Produto</th><th>Cidade</th><th>UF</th><th style="text-align:right">Valor</th><th style="text-align:right">Comissão</th><th></th></tr></thead><tbody>';
     mp.forEach(p=>{
       const pn=prods.find(x=>x.id===p.prod);
       h+='<tr><td><strong>'+p.num+'</strong></td>';
       h+='<td><span class="badge-m">'+p.mes.substring(0,3)+' '+p.ano+'</span></td>';
+      h+='<td style="font-size:11px;color:#888;white-space:nowrap" title="'+dataRegHora(p)+'">'+(dataReg(p)||'—')+'</td>';
       h+='<td>'+(pn?'<span class="badge-prod">'+pn.nome+'</span>':'—')+'</td>';
       h+='<td>'+p.cid+'</td><td><strong>'+p.uf+'</strong></td>';
       h+='<td style="text-align:right">'+fmt(p.val)+'</td>';
-      h+='<td style="text-align:right;color:#185FA5;font-weight:600">'+fmt(p.com)+(p.meia?' <span class="badge-meia">½</span>':'')+'</td>';
+      h+='<td style="text-align:right;color:#185FA5;font-weight:600">'+fmt(p.com)
+        +(ehVariavel(v)&&p.percEfetivo?' <span style="font-size:10px;color:#3B6D11">'+numBR(p.percEfetivo).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</span>':'')
+        +(p.meia?' <span class="badge-meia">½</span>':'')+'</td>';
       h+='<td style="text-align:right;white-space:nowrap">';
       h+='<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="editarPedido('+p.gid+')">✏️</button>';
       h+='<button class="del" onclick="delPedidoGid('+p.gid+')">✕</button></td></tr>';
     });
-    h+='<tr class="total-row"><td colspan="5">TOTAL COMISSÃO PEDIDOS</td>';
+    h+='<tr class="total-row"><td colspan="6">TOTAL COMISSÃO PEDIDOS</td>';
     h+='<td style="text-align:right">'+fmt(tv)+'</td>';
     h+='<td style="text-align:right;color:#185FA5">'+fmt(tcPed)+'</td><td></td></tr>';
     h+='</tbody></table>';
@@ -2302,43 +2631,46 @@ function renderRel(){
 
   if(mb.length>0){
     h+='<div class="section-lbl" style="color:#534AB7">Bônus por números que entraram</div>';
-    h+='<table><thead><tr><th>Mês</th><th>Descrição</th><th style="text-align:center">Qtd nºs</th><th style="text-align:right">Valor ('+fmt(v.bonus)+'/nº)</th><th></th></tr></thead><tbody>';
+    h+='<table><thead><tr><th>Mês</th><th>Registrado</th><th>Descrição</th><th style="text-align:center">Qtd nºs</th><th style="text-align:right">Valor ('+fmt(v.bonus)+'/nº)</th><th></th></tr></thead><tbody>';
     mb.forEach(b=>{
       h+='<tr><td><span class="badge-m">'+b.mes.substring(0,3)+' '+b.ano+'</span></td>';
+      h+='<td style="font-size:11px;color:#888;white-space:nowrap">'+(dataReg(b)||'—')+'</td>';
       h+='<td>'+b.obs+'</td>';
       h+='<td style="text-align:center;font-weight:600">'+b.qtd.toLocaleString('pt-BR')+'</td>';
       h+='<td style="text-align:right;color:#534AB7;font-weight:600">'+fmt(b.val)+'</td>';
       h+='<td style="text-align:right"><button class="del" onclick="delBonus('+b.id+')">✕</button></td></tr>';
     });
-    h+='<tr class="total-row"><td colspan="3">TOTAL BÔNUS</td>';
+    h+='<tr class="total-row"><td colspan="4">TOTAL BÔNUS</td>';
     h+='<td style="text-align:right;color:#534AB7">'+fmt(tb)+'</td><td></td></tr>';
     h+='</tbody></table>';
   }
 
   if(ma.length>0){
     h+='<div class="section-lbl" style="color:#854F0B">Adiantamentos pagos</div>';
-    h+='<table><thead><tr><th>Mês</th><th>Observação</th><th style="text-align:right">Valor</th><th></th></tr></thead><tbody>';
+    h+='<table><thead><tr><th>Mês</th><th>Registrado</th><th>Observação</th><th style="text-align:right">Valor</th><th></th></tr></thead><tbody>';
     ma.forEach(a=>{
       h+='<tr><td><span class="badge-adt">'+a.mes.substring(0,3)+' '+a.ano+'</span></td>';
+      h+='<td style="font-size:11px;color:#888;white-space:nowrap">'+(dataReg(a)||'—')+'</td>';
       h+='<td>'+a.obs+'</td>';
       h+='<td style="text-align:right;color:#854F0B;font-weight:600">− '+fmt(a.val)+'</td>';
       h+='<td style="text-align:right"><button class="del" onclick="delAdt('+a.id+')">✕</button></td></tr>';
     });
-    h+='<tr class="total-row"><td colspan="2">TOTAL ADIANTADO</td>';
+    h+='<tr class="total-row"><td colspan="3">TOTAL ADIANTADO</td>';
     h+='<td style="text-align:right;color:#854F0B">− '+fmt(ta2)+'</td><td></td></tr>';
     h+='</tbody></table>';
   }
 
   if(mest.length>0){
     h+='<div class="section-lbl" style="color:#A32D2D">🚫 Cancelamentos (estornos no mês)</div>';
-    h+='<table><thead><tr><th>Mês</th><th>Descrição</th><th style="text-align:right">Estorno comissão</th><th></th></tr></thead><tbody>';
+    h+='<table><thead><tr><th>Mês</th><th>Registrado</th><th>Descrição</th><th style="text-align:right">Estorno comissão</th><th></th></tr></thead><tbody>';
     mest.forEach(e=>{
       h+='<tr><td><span class="badge-m">'+e.mes.substring(0,3)+' '+e.ano+'</span></td>';
+      h+='<td style="font-size:11px;color:#888;white-space:nowrap">'+(dataReg(e)||'—')+'</td>';
       h+='<td>Cancelamento do pedido <strong>'+e.num+'</strong>'+(e.cid?' — '+e.cid+'/'+e.uf:'')+'</td>';
       h+='<td style="text-align:right;color:#A32D2D;font-weight:600">'+fmt(comEstornoRegistro(e))+'</td>';
       h+='<td style="text-align:right"><button class="btn" style="font-size:11px;padding:3px 8px" onclick="reativarPedido('+e.cancGid+')">↩︎</button></td></tr>';
     });
-    h+='<tr class="total-row"><td colspan="2">TOTAL ESTORNOS</td><td style="text-align:right;color:#A32D2D">'+fmt(test)+'</td><td></td></tr>';
+    h+='<tr class="total-row"><td colspan="3">TOTAL ESTORNOS</td><td style="text-align:right;color:#A32D2D">'+fmt(test)+'</td><td></td></tr>';
     h+='</tbody></table>';
   }
   h+=buildSaldoBox(v,f,tcPed,tb,ta2,test);
@@ -2358,8 +2690,9 @@ function pdfVendedor(vid){
   mest.sort((a,b)=>parseInt(b.num)-parseInt(a.num));
   let ma=ads.filter(a=>a.vid===vid);if(f)ma=ma.filter(a=>ck(a.mes,a.ano)===f);
   let mb=bonus.filter(b=>b.vid===vid);if(f)mb=mb.filter(b=>ck(b.mes,b.ano)===f);
+  const _fmPre=f?f.split('_')[0]:null,_faPre=f?parseInt(f.split('_')[1]):null;
   const uniq=uniquePedidos(mp);
-  const tcPed=mp.reduce((s,p)=>s+(Number(p.com)||0),0);
+  const tcPed=somaComissoes(mp);
   const test=mest.reduce((s,p)=>s+comEstornoRegistro(p),0);
   const tc=tcPed+test;
   const tb=mb.reduce((s,b)=>s+(Number(b.val)||0),0);
@@ -2374,39 +2707,71 @@ function pdfVendedor(vid){
     ln+='<tr><td>'+p.num+'</td><td>'+(pn?pn.nome:'—')+'</td>';
     ln+='<td>'+p.cid+' — '+p.uf+'</td>';
     ln+='<td>'+p.mes.substring(0,3)+'/'+p.ano+'</td>';
+    ln+='<td>'+(dataReg(p)||'—')+'</td>';
     ln+='<td style="text-align:right">'+fmt(p.val)+'</td>';
     ln+='<td style="text-align:right;color:#185FA5;font-weight:600">'+fmt(p.com)+(p.meia?' (½)':'')+'</td></tr>';
   });
-  ln+='<tr style="background:#eef3fa"><td colspan="4" style="font-weight:700">TOTAL COMISSÃO PEDIDOS</td><td style="text-align:right">'+fmt(tv)+'</td><td style="text-align:right;font-weight:700;color:#185FA5">'+fmt(tcPed)+'</td></tr>';
+  ln+='<tr style="background:#eef3fa"><td colspan="5" style="font-weight:700">TOTAL COMISSÃO PEDIDOS</td><td style="text-align:right">'+fmt(tv)+'</td><td style="text-align:right;font-weight:700;color:#185FA5">'+fmt(tcPed)+'</td></tr>';
+
+  /* Quebra por faixa: o vendedor variável precisa enxergar de onde saiu cada
+     parte da comissão do mês — senão o número parece arbitrário. */
+  let faixaR='';
+  if(f&&ehVariavel(v)&&!isNaN(numBR(v.perc))){
+    const percB=numBR(v.perc);
+    const totalMes=totalVendidoMes(vid,_fmPre,_faPre);
+    const infoF=faixaDoTotal(totalMes);
+    let piso=0,linhasF='';
+    infoF.faixas.forEach(fx=>{
+      const teto=(fx.ate==null)?Infinity:fx.ate;
+      const trecho=Math.min(totalMes,teto)-piso;
+      if(trecho>0){
+        linhasF+='<tr><td colspan="4">'+fmt(piso)+(teto===Infinity?' em diante':' a '+fmt(teto))+'</td>'
+          +'<td style="text-align:right">'+(percB*fx.mult).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</td>'
+          +'<td style="text-align:right">'+fmt(trecho)+'</td>'
+          +'<td style="text-align:right;font-weight:600;color:#185FA5">'+fmt(trecho*percB/100*fx.mult)+'</td></tr>';
+      }
+      piso=teto;
+    });
+    if(linhasF){
+      faixaR='<h3 style="margin:20px 0 8px;color:#3B6D11;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Faixas de comissão do mês'
+        +(infoF.bonusPct>0?' — bônus de '+infoF.bonusPct+'% ativo':'')+'</h3>'
+        +'<table><thead><tr><th colspan="4">Faixa (vendas do mês)</th><th style="text-align:right">%</th><th style="text-align:right">Base</th><th style="text-align:right">Comissão</th></tr></thead><tbody>'
+        +linhasF
+        +'<tr style="background:#EAF3DE"><td colspan="5" style="font-weight:700;color:#3B6D11">TOTAL VENDIDO NO MÊS</td>'
+        +'<td style="text-align:right;font-weight:700">'+fmt(totalMes)+'</td>'
+        +'<td style="text-align:right;font-weight:700;color:#3B6D11">'+fmt(comissaoAteTotal(totalMes,percB))+'</td></tr>'
+        +'</tbody></table>';
+    }
+  }
 
   let bonusR='';
   if(mb.length>0){
     bonusR='<h3 style="margin:20px 0 8px;color:#534AB7;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Bônus por números que entraram</h3>';
-    bonusR+='<table><thead><tr><th>Mês</th><th>Descrição</th><th style="text-align:center">Qtd nºs</th><th style="text-align:right">Valor ('+fmt(v.bonus||0)+'/nº)</th></tr></thead><tbody>';
+    bonusR+='<table><thead><tr><th>Mês</th><th>Registrado</th><th>Descrição</th><th style="text-align:center">Qtd nºs</th><th style="text-align:right">Valor ('+fmt(v.bonus||0)+'/nº)</th></tr></thead><tbody>';
     mb.forEach(b=>{
-      bonusR+='<tr><td>'+b.mes.substring(0,3)+'/'+b.ano+'</td><td>'+b.obs+'</td>';
+      bonusR+='<tr><td>'+b.mes.substring(0,3)+'/'+b.ano+'</td><td>'+(dataReg(b)||'—')+'</td><td>'+b.obs+'</td>';
       bonusR+='<td style="text-align:center;font-weight:600">'+b.qtd.toLocaleString('pt-BR')+'</td>';
       bonusR+='<td style="text-align:right;color:#534AB7;font-weight:600">'+fmt(b.val)+'</td></tr>';
     });
-    bonusR+='<tr style="background:#EEEDFE"><td colspan="3" style="font-weight:700;color:#534AB7">TOTAL BÔNUS</td><td style="text-align:right;font-weight:700;color:#534AB7">'+fmt(tb)+'</td></tr>';
+    bonusR+='<tr style="background:#EEEDFE"><td colspan="4" style="font-weight:700;color:#534AB7">TOTAL BÔNUS</td><td style="text-align:right;font-weight:700;color:#534AB7">'+fmt(tb)+'</td></tr>';
     bonusR+='</tbody></table>';
   }
 
   let adtR='';
   if(ma.length>0){
     adtR='<h3 style="margin:20px 0 8px;color:#854F0B;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Adiantamentos pagos</h3>';
-    adtR+='<table><thead><tr><th colspan="5">Descrição</th><th style="text-align:right">Valor</th></tr></thead><tbody>';
-    ma.forEach(a=>{adtR+='<tr><td colspan="5">'+a.obs+' ('+a.mes.substring(0,3)+'/'+a.ano+')</td><td style="text-align:right;color:#854F0B;font-weight:600">− '+fmt(a.val)+'</td></tr>';});
-    adtR+='<tr style="background:#FAEEDA"><td colspan="5" style="font-weight:700;color:#854F0B">TOTAL ADIANTADO</td><td style="text-align:right;font-weight:700;color:#854F0B">− '+fmt(ta2)+'</td></tr>';
+    adtR+='<table><thead><tr><th colspan="6">Descrição</th><th style="text-align:right">Valor</th></tr></thead><tbody>';
+    ma.forEach(a=>{adtR+='<tr><td colspan="6">'+a.obs+' ('+a.mes.substring(0,3)+'/'+a.ano+')'+(dataReg(a)?' — registrado em '+dataReg(a):'')+'</td><td style="text-align:right;color:#854F0B;font-weight:600">− '+fmt(a.val)+'</td></tr>';});
+    adtR+='<tr style="background:#FAEEDA"><td colspan="6" style="font-weight:700;color:#854F0B">TOTAL ADIANTADO</td><td style="text-align:right;font-weight:700;color:#854F0B">− '+fmt(ta2)+'</td></tr>';
     adtR+='</tbody></table>';
   }
 
   let estR='';
   if(mest.length>0){
     estR='<h3 style="margin:20px 0 8px;color:#A32D2D;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Cancelamentos (estornos no mês)</h3>';
-    estR+='<table><thead><tr><th>Mês</th><th colspan="4">Descrição</th><th style="text-align:right">Estorno comissão</th></tr></thead><tbody>';
-    mest.forEach(e=>{estR+='<tr><td>'+e.mes.substring(0,3)+'/'+e.ano+'</td><td colspan="4">Cancelamento do pedido '+e.num+(e.cid?' — '+e.cid+'/'+e.uf:'')+'</td><td style="text-align:right;color:#A32D2D;font-weight:600">'+fmt(e.com)+'</td></tr>';});
-    estR+='<tr style="background:#FCEBEB"><td colspan="5" style="font-weight:700;color:#A32D2D">TOTAL ESTORNOS</td><td style="text-align:right;font-weight:700;color:#A32D2D">'+fmt(test)+'</td></tr>';
+    estR+='<table><thead><tr><th>Mês</th><th colspan="5">Descrição</th><th style="text-align:right">Estorno comissão</th></tr></thead><tbody>';
+    mest.forEach(e=>{estR+='<tr><td>'+e.mes.substring(0,3)+'/'+e.ano+'</td><td colspan="5">Cancelamento do pedido '+e.num+(e.cid?' — '+e.cid+'/'+e.uf:'')+(dataReg(e)?' — estornado em '+dataReg(e):'')+'</td><td style="text-align:right;color:#A32D2D;font-weight:600">'+fmt(comEstornoRegistro(e))+'</td></tr>';});
+    estR+='<tr style="background:#FCEBEB"><td colspan="6" style="font-weight:700;color:#A32D2D">TOTAL ESTORNOS</td><td style="text-align:right;font-weight:700;color:#A32D2D">'+fmt(test)+'</td></tr>';
     estR+='</tbody></table>';
   }
 
@@ -2446,7 +2811,7 @@ function pdfVendedor(vid){
     +'</style></head><body>'
     +'<button class="btnp" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>'
     +'<h1>AÇO NAVAL</h1><h2>Relatório de Comissões — '+v.nome+'</h2>'
-    +'<div class="s">Referência: '+r+' &nbsp;|&nbsp; Comissão: '+v.perc+'%</div><hr>'
+    +'<div class="s">Referência: '+r+' &nbsp;|&nbsp; Comissão: '+v.perc+'%'+(ehVariavel(v)?' (base — faixas progressivas por volume do mês)':'')+'</div><hr>'
     +'<div class="rs">'
     +'<div class="bx"><div class="v">'+uniq.length+'</div><div class="l" style="color:#888">Pedidos</div></div>'
     +'<div class="bx"><div class="v" style="color:#185FA5">'+fmt(tcPed)+'</div><div class="l" style="color:#888">Comissão pedidos</div></div>'
@@ -2456,9 +2821,9 @@ function pdfVendedor(vid){
     +'<div class="bx" style="border-left:3px solid #3B6D11"><div class="v" style="color:#3B6D11">'+fmt(tl)+'</div><div class="l" style="color:#888">A pagar</div></div>'
     +'</div>'
     +'<h3 style="margin:0 0 6px;color:#003366;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Pedidos</h3>'
-    +'<table><thead><tr><th>Nº</th><th>Produto</th><th>Cidade / UF</th><th>Mês</th><th style="text-align:right">Valor</th><th style="text-align:right">Comissão</th></tr></thead>'
+    +'<table><thead><tr><th>Nº</th><th>Produto</th><th>Cidade / UF</th><th>Mês</th><th>Registrado</th><th style="text-align:right">Valor</th><th style="text-align:right">Comissão</th></tr></thead>'
     +'<tbody>'+ln+'</tbody></table>'
-    +bonusR+adtR+estR+resumoLiquido
+    +faixaR+bonusR+adtR+estR+resumoLiquido
     +'<div class="rd">Documento gerado automaticamente — Aço Naval</div></body></html>');
   w.document.close();
 }
@@ -2825,7 +3190,7 @@ function pdfEntregas(){
 
 /* ========== BACKUP ========== */
 function exportarBackup(){
-  const d={vs,ps,ads,prods,anus,sts,bonus,transfs,pgtos,comsts,compag,anunv,metaAcc,data:new Date().toISOString()};
+  const d={vs,ps,ads,prods,anus,sts,bonus,transfs,pgtos,comsts,compag,anunv,metaAcc,faixas:faixasAtivas(),data:new Date().toISOString()};
   const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);
   a.download='backup_aco_naval_'+new Date().toISOString().split('T')[0]+'.json';a.click();
@@ -2839,7 +3204,7 @@ function importarBackup(e){
     vs=d.vs||d.vendedores||[];ps=normalizarPedidos(d.ps||d.pedidos);
     ads=d.ads||d.adiantamentos||[];prods=d.prods||d.produtos||[];
     anus=d.anus||d.anuncios||[];sts=d.sts||{};bonus=d.bonus||[];transfs=d.transfs||[];pgtos=d.pgtos||{};
-    comsts=d.comsts||{};compag=d.compag||{};anunv=d.anunv||{};metaAcc=d.metaAcc||'';
+    comsts=d.comsts||{};compag=d.compag||{};anunv=d.anunv||{};metaAcc=d.metaAcc||'';faixas=Array.isArray(d.faixas)&&d.faixas.length?d.faixas:null;
     salvar();renderV();renderSel();renderTabs();renderF();renderProd();renderSelProd();renderAnunCfg(true);
     alert('Backup importado!');
   }catch(err){alert('Erro: '+err.message);}};
@@ -2848,7 +3213,7 @@ function importarBackup(e){
 function limparTudo(){
   if(!confirm('Apagar TODOS os dados?'))return;
   if(!confirm('Confirma? Não pode ser desfeito e apaga também da NUVEM (todos os dispositivos).'))return;
-  vs=[];ps=[];ads=[];prods=[];anus=[];sts={};bonus=[];transfs=[];pgtos={};pends={};comsts={};compag={};comMigrado=false;ta=null;anunv={};metaAcc='';metaSpend=null;
+  vs=[];ps=[];ads=[];prods=[];anus=[];sts={};bonus=[];transfs=[];pgtos={};pends={};comsts={};compag={};comMigrado=false;ta=null;anunv={};metaAcc='';metaSpend=null;faixas=null;
   ['vs','ps','ads','prods','anus','sts','bonus','transfs','pgtos','comsts','compag','anunv','metaAcc','metaToken'].forEach(k=>localStorage.removeItem('an_'+k));
   // Antes só limpava localmente e os dados voltavam da nuvem ao recarregar.
   REF.remove().catch(e=>console.error('Erro ao limpar nuvem:',e));
