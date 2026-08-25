@@ -1521,11 +1521,11 @@ const idsOrcamentoRemovidos = new Set();
 // Aqui o servidor é lido de novo IMEDIATAMENTE antes da gravação e o que só
 // existe lá é reaproveitado. O que está na memória vence nos itens que existem
 // dos dois lados (é o que acabou de ser editado aqui).
-async function mesclarComServidorAntesDeSalvar() {
+async function mesclarComServidorAntesDeSalvar(soOrcamentos) {
   if (!db) return;
   try {
     const [idxSnap, orcSnap] = await Promise.all([
-      db.collection('acn').doc('produtos_index').get(),
+      soOrcamentos ? Promise.resolve({ exists: false }) : db.collection('acn').doc('produtos_index').get(),
       db.collection('acn').doc('orcamentos').get()
     ]);
 
@@ -1587,20 +1587,28 @@ function precisaComprimir(b64, maxKB) {
 // segunda só começa depois que a primeira terminou, então já lê o resultado
 // dela em vez de uma versão velha.
 let filaSave = Promise.resolve();
-function save() {
-  const proxima = filaSave.then(gravarAgora, gravarAgora);
+// opcoes.soOrcamentos: grava SÓ o documento dos orçamentos.
+// Salvar um orçamento regravava o catálogo inteiro — todos os produtos e todas
+// as fotos de projeto — a cada clique em "Salvar". Num catálogo de 40 produtos
+// com projeto isso dava mais de 160 documentos e dezenas de MB de upload por
+// orçamento: era o "fica salvando um tempão". Orçamento não mexe em produto,
+// então não há o que regravar ali.
+function save(opcoes) {
+  const rodar = () => gravarAgora(opcoes);
+  const proxima = filaSave.then(rodar, rodar);
   filaSave = proxima.catch(() => {});
   return proxima;
 }
 
-async function gravarAgora() {
+async function gravarAgora(opcoes) {
+  const soOrcamentos = !!(opcoes && opcoes.soOrcamentos);
   setStatus('💾 Salvando…');
   try {
     // Junta o que outro computador gravou antes de sobrescrever (ver função)
-    await mesclarComServidorAntesDeSalvar();
+    await mesclarComServidorAntesDeSalvar(soOrcamentos);
 
     // Comprime só as fotos que ainda não estão comprimidas
-    for (const p of produtos) {
+    for (const p of soOrcamentos ? [] : produtos) {
       if (precisaComprimir(p.foto, 280)) {
         setStatus('🖼️ Comprimindo foto…');
         p.foto = await comprimirFoto(p.foto);
@@ -1628,9 +1636,13 @@ async function gravarAgora() {
     });
     await Promise.all([
       colOrc.doc('orcamentos').set({ lista: orcSemFoto }),
-      colOrc.doc('produtos_index').set({ ids: produtos.map(p => p.id) }),
-      colOrc.doc('config').set({ filtrosDef, eixosDef, categorias, catPrefixes, catPortfolioAlias })
+      ...(soOrcamentos ? [] : [
+        colOrc.doc('produtos_index').set({ ids: produtos.map(p => p.id) }),
+        colOrc.doc('config').set({ filtrosDef, eixosDef, categorias, catPrefixes, catPortfolioAlias })
+      ])
     ]);
+
+    if (soOrcamentos) { setStatus('✅ Salvo', 'ok'); return; }
 
     // Salva cada produto em documento separado (evita limite de 1MB).
     // IMPORTANTE: fotosprojeto fica em acn_prod_fotos/{id} para não estoura o 1MB.
@@ -4596,19 +4608,25 @@ async function gerarOrcamentoInterno() {
     }
     orcamentos[idx] = { ...orcamentos[idx], ...dados };
     const id = orcamentos[idx].id;
+    const numEditado = orcamentos[idx].num;
     orcamentoEditandoId = null;
     updateBadge();
-    // save() precisa ser aguardado: sem o await, um erro de gravação passava
-    // despercebido e o orçamento aparecia atualizado na tela sem ter sido salvo.
+    // Mostra o resultado JÁ, sem esperar a gravação — é o que o fluxo de
+    // orçamento novo sempre fez. Antes o modal só abria depois do save, então
+    // numa gravação demorada a tela ficava parada e dava a impressão de que o
+    // "Salvar" não tinha feito nada.
+    resetForm();
+    renderLista();
+    showOrcamento(id);
+    // A gravação continua sendo aguardada: sem isso, um erro passava
+    // despercebido e o orçamento aparecia atualizado sem ter sido salvo.
     try {
-      await save();
-      setStatus('✅ Orçamento #' + String(orcamentos[idx].num).padStart(3,'0') + ' atualizado!', 'ok');
+      await save({ soOrcamentos: true });
+      setStatus('✅ Orçamento #' + String(numEditado).padStart(3,'0') + ' atualizado!', 'ok');
     } catch(e) {
       console.error('Erro ao salvar orçamento:', e);
       setStatus('⚠️ Erro ao salvar — verifique sua conexão', 'erro');
     }
-    resetForm();
-    showOrcamento(id);
   } else {
     // Novo orçamento — número sempre maior que o maior já usado
     // (antes usava orcamentos.length+1, que repetia números após exclusões)
@@ -4620,9 +4638,10 @@ async function gerarOrcamentoInterno() {
     // clique em "Gerar Orçamento" (precisa ser antes do await do save, senão o
     // navegador bloqueia a escrita no clipboard sem interação do usuário).
     const copyPromise = copiarMsgOrcamentoClipboard(orc);
+    renderLista();
     showOrcamento(orc.id);
     try {
-      await save();
+      await save({ soOrcamentos: true });
       const copiado = await copyPromise;
       setStatus(copiado
         ? '✅ Salvo! Mensagem do orçamento copiada — é só colar no WhatsApp do cliente.'
@@ -4667,7 +4686,7 @@ function deleteOrcamento(id) {
     idsOrcamentoRemovidos.add(String(id));   // não deixa a mesclagem trazer de volta
     renderLista();
     updateBadge();
-    save().catch(e => console.warn('Save error:', e));
+    save({ soOrcamentos: true }).catch(e => console.warn('Save error:', e));
   });
 }
 function updateBadge() { document.getElementById('badge-count').textContent = orcamentos.length; }
