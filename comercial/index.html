@@ -1581,7 +1581,19 @@ function precisaComprimir(b64, maxKB) {
   return !jaEhJpegLeve;
 }
 
-async function save() {
+// Duas gravações ao mesmo tempo se atropelam: as duas releem a lista do
+// servidor e a que termina por último grava por cima da outra. Era assim que um
+// orçamento aparecia e sumia logo em seguida. Aqui elas entram numa FILA — a
+// segunda só começa depois que a primeira terminou, então já lê o resultado
+// dela em vez de uma versão velha.
+let filaSave = Promise.resolve();
+function save() {
+  const proxima = filaSave.then(gravarAgora, gravarAgora);
+  filaSave = proxima.catch(() => {});
+  return proxima;
+}
+
+async function gravarAgora() {
   setStatus('💾 Salvando…');
   try {
     // Junta o que outro computador gravou antes de sobrescrever (ver função)
@@ -1694,21 +1706,12 @@ async function loadFromFirebase() {
 
     if (orcSnap.exists) orcamentos = orcSnap.data().lista || [];
 
-    // Limpar orçamentos com mais de 30 dias
-    const limite30dias = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const antes = orcamentos.length;
-    orcamentos = orcamentos.filter(o => {
-      const ts = o.criadoEm ? new Date(o.criadoEm).getTime() : (o.id || 0);
-      const manter = ts >= limite30dias;
-      // Registra a expiração: sem isto, a mesclagem feita antes da próxima
-      // gravação releria o servidor e traria o orçamento vencido de volta.
-      if (!manter && o.id != null) idsOrcamentoRemovidos.add(String(o.id));
-      return manter;
-    });
-    if (orcamentos.length < antes) {
-      console.log(`🧹 ${antes - orcamentos.length} orçamento(s) expirado(s) removido(s).`);
-      await db.collection('acn').doc('orcamentos').set({ lista: orcamentos });
-    }
+    // A limpeza dos 30 dias NÃO fica mais aqui. Existiam duas, com regras
+    // diferentes: esta usava `o.id` como data quando faltava `criadoEm` — e um
+    // orçamento antigo, de quando o id ainda era um número pequeno, virava
+    // "criado em 1970" e era apagado do banco na hora de abrir a tela, sem
+    // aviso. Agora quem limpa é só limparOrcamentosAntigos(), que na dúvida
+    // MANTÉM e grava pelo save() normal (com mesclagem e fila).
     // Carrega pedidos de acn_pedidos/{id} (formato novo — doc individual por pedido).
     // Se a coleção estiver vazia, tenta migrar do formato antigo acn/pedidos.
     if (!pedColSnap.empty) {
@@ -4515,7 +4518,35 @@ function editarOrcamento(id) {
   }
 }
 
+// O botão não se bloqueava enquanto gravava. Numa conexão lenta o usuário
+// clicava de novo achando que não tinha funcionado — e, como o primeiro clique
+// já havia encerrado o modo de edição, o segundo criava um orçamento NOVO, com
+// número novo. Junto com as gravações concorrentes, era o "gera outro número e
+// depois apaga".
+let gerandoOrcamento = false;
+function marcarBotaoSalvando() {
+  const btn = document.getElementById('btn-gerar-orc');
+  if (!btn) return;
+  btn.dataset.textoAntes = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '💾 Salvando…';
+}
+function liberarBotaoSalvar() {
+  const btn = document.getElementById('btn-gerar-orc');
+  if (!btn) return;
+  btn.disabled = false;
+  // resetForm() pode já ter escrito o texto certo; só restaura se ninguém mexeu.
+  if (btn.textContent === '💾 Salvando…') btn.textContent = btn.dataset.textoAntes || '📄 Gerar Orçamento';
+  delete btn.dataset.textoAntes;
+}
 async function gerarOrcamento() {
+  if (gerandoOrcamento) return;   // clique repetido com a gravação em curso
+  gerandoOrcamento = true;
+  try { await gerarOrcamentoInterno(); }
+  finally { gerandoOrcamento = false; liberarBotaoSalvar(); }
+}
+
+async function gerarOrcamentoInterno() {
   const cliente = document.getElementById('oc-cliente').value.trim();
   if (!cliente) return alert('Informe o nome do cliente.');
   const validItems = items.filter(i => i.desc.trim());
@@ -4526,6 +4557,9 @@ async function gerarOrcamento() {
     return alert('⚠️ Escolha o sentido (Direita ou Esquerda) do item:\n\n• ' +
       semLadoOrc.map(i => (i.desc || '').split('\n')[0]).join('\n• '));
   }
+
+  // Validações passaram: agora sim mostra que está gravando.
+  marcarBotaoSalvando();
 
   // Bug fix: remove fotos embutidas dos itens para não exceder o limite de 1MB
   // do Firestore — fotos ficam na coleção acn_produtos (referenciadas por prodId)

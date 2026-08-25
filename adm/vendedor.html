@@ -312,6 +312,33 @@ function comDoEstorno(e){
   const c=numBR(e.com);
   return isNaN(c)?0:-Math.abs(c);
 }
+/* O `com` gravado em cada venda pode estar velho: foi calculado antes das
+   faixas existirem, ou o administrativo ainda não gravou de novo depois de uma
+   venda nova entrar pela integração. Aqui a comissão do vendedor VARIÁVEL é
+   refeita pelas faixas do mês dele — a mesma conta do adm — para o saldo, as
+   métricas, os cartões de venda e o cartão de faixa mostrarem tudo igual.
+   Só mexe na tela: nada é gravado a partir daqui. */
+function aplicarFaixasLocal(){
+  if(!ehVariavel(vendedor))return;
+  const perc=numBR(vendedor.perc);
+  if(isNaN(perc))return;
+  const porMes={};
+  pedidos.forEach(p=>{const k=ck(p.mes,p.ano);(porMes[k]=porMes[k]||[]).push(p);});
+  Object.keys(porMes).forEach(k=>{
+    // Ordem cronológica: a venda que faz o mês passar de 100 mil é que puxa a
+    // faixa maior, e as seguintes já nascem na faixa nova.
+    const lista=porMes[k].slice().sort((a,b)=>(Number(a.gid)||0)-(Number(b.gid)||0));
+    let acc=0;
+    lista.forEach(p=>{
+      const val=numBR(p.val)||0;
+      const bruto=comissaoAteTotal(acc+val,perc)-comissaoAteTotal(acc,perc);
+      const fator=(p.meia&&vendedor.permiteMeia)?0.5:1;
+      p.com=parseFloat((bruto*fator).toFixed(2));
+      acc+=val;
+    });
+  });
+}
+
 /* ===== NUMERAÇÃO PRÓPRIA DE VENDAS ===========================
    Cada vendedor tem a SUA sequência: Venda 1, 2, 3... que ZERA todo
    mês. O número real do pedido da fábrica nunca aparece aqui (evita
@@ -424,6 +451,8 @@ if(!nomeUrl){
       if(vistoT[k])return false;vistoT[k]=true;return true;
     });
 
+    // Comissão dos variáveis pelas faixas do mês (antes de qualquer soma)
+    aplicarFaixasLocal();
     // Numeração própria: Venda 1, 2, 3... zerando a cada mês
     calcularNumerosVenda();
     // Saldo dos meses encerrados segue automaticamente para o mês atual
