@@ -1681,6 +1681,26 @@ function salvarEditVendedor(){
   fecharEditVendedor();
 }
 
+/* Link curto do vendedor: www.aconaval.com/paulo em vez do endereço comprido
+   com "adm/vendedor.html?v=". Quem resolve o atalho é o 404.html na raiz do
+   site, que compara o nome do endereço com a lista de vendedores. Por isso o
+   atalho usa o PRIMEIRO nome — e cai para o nome inteiro com hífen quando dois
+   vendedores começam igual, senão um roubaria o link do outro. */
+function apelidoDoVend(v){
+  const limpo = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,' ').trim();
+  const inteiro = limpo(v.nome);
+  const primeiro = inteiro.split(' ')[0] || '';
+  const repetido = vs.filter(x => x && x.nome && limpo(x.nome).split(' ')[0] === primeiro).length > 1;
+  return (repetido ? inteiro : primeiro).replace(/\s+/g,'-');
+}
+function linkCurtoVend(v){
+  // Fora do domínio oficial (abrindo por IP, localhost ou GitHub Pages) o
+  // atalho não vale, então ali mostramos o endereço deste mesmo servidor.
+  const oficial = /(^|\.)aconaval\.com$/.test(location.hostname);
+  const raiz = oficial ? (location.origin + '/') : 'https://www.aconaval.com/';
+  return raiz + apelidoDoVend(v);
+}
 function renderLinksVendedores(){
   const el=document.getElementById('lista-links-vend');
   const elSis=document.getElementById('lista-links-sistema');
@@ -1691,14 +1711,25 @@ function renderLinksVendedores(){
   if(!vs.length){el.innerHTML='<p class="empty">Nenhum vendedor cadastrado.</p>';return;}
   let h='';
   vs.forEach(v=>{
-    const link=base+'vendedor.html?v='+encodeURIComponent(v.nome.toLowerCase());
+    const curto=linkCurtoVend(v);
+    const longo=base+'vendedor.html?v='+encodeURIComponent(v.nome.toLowerCase());
     h+='<div style="background:#f5f7fa;border-radius:8px;padding:12px 14px;margin-bottom:10px">';
     h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
     h+='<strong>'+v.nome+'</strong><span style="font-size:12px;color:#888">'+v.perc+'%'+(v.bonus>0?' + R$'+v.bonus+'/nº':'')+'</span></div>';
     h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
-    h+='<input type="text" value="'+link+'" readonly style="flex:1;font-size:12px;background:#fff;color:#185FA5;min-width:0;padding:7px 10px;border:1px solid #d0d4d8;border-radius:6px" onclick="this.select()" id="lv-'+v.id+'"/>';
+    h+='<input type="text" value="'+curto+'" readonly style="flex:1;font-size:13px;font-weight:600;background:#fff;color:#185FA5;min-width:0;padding:7px 10px;border:1px solid #d0d4d8;border-radius:6px" onclick="this.select()" id="lv-'+v.id+'"/>';
     h+='<button class="btn" style="white-space:nowrap;font-size:12px;padding:6px 12px;width:auto;flex-shrink:0" onclick="copiarLink(\'lv-'+v.id+'\',this)">📋 Copiar</button>';
-    h+='</div></div>';
+    h+='</div>';
+    // O link comprido continua à mão: serve se o atalho ainda não estiver no ar
+    // (o site leva alguns minutos para publicar) ou para abrir em outro domínio.
+    // display:none direto (e não o atributo hidden): o display:flex inline
+    // venceria o hidden e a caixa nasceria aberta.
+    h+='<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();const d=this.nextElementSibling;d.style.display=(d.style.display===\'none\'?\'flex\':\'none\')" style="font-size:11px;color:#888;text-decoration:underline">link completo</a>'
+      +'<div style="display:none;margin-top:6px;gap:8px;align-items:center;flex-wrap:wrap">'
+      +'<input type="text" value="'+longo+'" readonly style="flex:1;font-size:11px;background:#fff;color:#888;min-width:0;padding:6px 9px;border:1px solid #e0e4e8;border-radius:6px" onclick="this.select()" id="lvl-'+v.id+'"/>'
+      +'<button class="btn" style="white-space:nowrap;font-size:11px;padding:5px 10px;width:auto;flex-shrink:0" onclick="copiarLink(\'lvl-'+v.id+'\',this)">📋</button>'
+      +'</div></div>';
+    h+='</div>';
   });
   el.innerHTML=h;
 

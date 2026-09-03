@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#003366">
+<meta name="robots" content="noindex">
+<title>Aço Naval</title>
+<link rel="icon" href="/adm/icon-32.png">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#f4f6f8;color:#222;
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+       display:flex;align-items:center;justify-content:center;padding:24px}
+  .caixa{width:100%;max-width:420px;background:#fff;border-radius:16px;overflow:hidden;
+         box-shadow:0 6px 24px rgba(0,0,0,.08)}
+  .topo{background:linear-gradient(135deg,#003366 0%,#185FA5 100%);padding:22px 22px 24px;
+        display:flex;align-items:center;gap:10px}
+  .topo img{width:38px;height:38px;border-radius:8px;object-fit:contain;
+            background:rgba(255,255,255,.1);padding:4px}
+  .topo span{color:#fff;font-size:16px;font-weight:700;letter-spacing:.5px}
+  .corpo{padding:26px 22px 28px;text-align:center}
+  .corpo h1{font-size:19px;margin:0 0 8px}
+  .corpo p{font-size:14px;color:#667;line-height:1.6;margin:0 0 18px}
+  .btn{display:inline-block;background:#185FA5;color:#fff;text-decoration:none;
+       padding:11px 20px;border-radius:9px;font-size:14px;font-weight:600;margin:4px}
+  .btn.claro{background:#eef2f6;color:#185FA5}
+  .lista{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+  .lista a{display:block;background:#eef2f6;color:#185FA5;text-decoration:none;
+           padding:12px 14px;border-radius:9px;font-size:14px;font-weight:600}
+  .spin{width:26px;height:26px;border:3px solid #dde3ea;border-top-color:#185FA5;
+        border-radius:50%;animation:g .8s linear infinite;margin:6px auto 14px}
+  @keyframes g{to{transform:rotate(360deg)}}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="caixa">
+  <div class="topo"><img src="/adm/icon-180.png" alt="Aço Naval"><span>AÇO NAVAL</span></div>
+
+  <div class="corpo" id="carregando">
+    <div class="spin"></div>
+    <p>Abrindo…</p>
+  </div>
+
+  <div class="corpo" id="escolha" hidden>
+    <h1>Qual deles?</h1>
+    <p>Mais de um vendedor atende por esse nome.</p>
+    <div class="lista" id="opcoes"></div>
+  </div>
+
+  <div class="corpo" id="naoachou" hidden>
+    <h1>Página não encontrada</h1>
+    <p>O endereço <strong id="oque"></strong> não existe.<br>Confira o link com quem enviou.</p>
+    <a class="btn" href="/">Ir para a loja</a>
+    <a class="btn claro" href="/3d/">Projetos 3D</a>
+  </div>
+</div>
+
+<script>
+/* ── LINKS CURTOS ───────────────────────────────────────────────────────────
+   O GitHub Pages não tem redirecionamento de servidor: qualquer endereço que
+   não seja um arquivo real cai nesta página. É isso que faz
+   www.aconaval.com/paulo funcionar sem precisar criar uma pasta para cada
+   vendedor — os vendedores são cadastrados no administrativo, não no site.
+
+   Aqui o nome do endereço é comparado com a lista de vendedores que está no
+   Firebase e, batendo, a pessoa vai para o painel dela. Não batendo, aparece
+   um "não encontrado" de verdade — sem isso, qualquer erro de digitação abriria
+   um painel vazio dizendo "link inválido", que confunde mais do que ajuda. */
+(function () {
+  var firebaseConfig = {
+    apiKey: "AIzaSyAb46YPuZDtuGitlySCxKXJjy0WEy0xPMI",
+    authDomain: "aco-naval-gestao.firebaseapp.com",
+    databaseURL: "https://aco-naval-gestao-default-rtdb.firebaseio.com",
+    projectId: "aco-naval-gestao",
+    storageBucket: "aco-naval-gestao.firebasestorage.app",
+    messagingSenderId: "359027216116",
+    appId: "1:359027216116:web:af8df148f57e7c3fb398a1"
+  };
+
+  // "Paulo Ricardo" e "paulo-ricardo" têm que dar no mesmo lugar
+  function normalizar(s) {
+    return String(s || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // tira acento
+      .toLowerCase().replace(/[-_+]+/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function primeiroNome(s) { return normalizar(s).split(' ')[0] || ''; }
+  function painelDo(v) { return '/adm/vendedor.html?v=' + encodeURIComponent(String(v.nome || '').toLowerCase()); }
+
+  function mostrar(qual) {
+    ['carregando', 'escolha', 'naoachou'].forEach(function (id) {
+      document.getElementById(id).hidden = (id !== qual);
+    });
+  }
+  function naoAchou(texto) {
+    document.getElementById('oque').textContent = texto;
+    mostrar('naoachou');
+  }
+
+  // Só um pedaço, sem barra no meio e sem extensão, pode ser nome de vendedor.
+  // "/comercial/x" ou "/produto.htm" não são — esses merecem o 404 normal.
+  var caminho = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ''));
+  var ehNome = caminho && caminho.indexOf('/') === -1 && caminho.indexOf('.') === -1;
+  var alvo = normalizar(caminho);
+
+  if (!ehNome) { naoAchou('/' + caminho); return; }
+
+  // Atalhos fixos do site. Normalmente nem chegam aqui — /3d é uma pasta de
+  // verdade e o próprio servidor resolve. Ficam como rede de segurança para
+  // quem digita sem a barra final e não recebe o redirecionamento.
+  var atalhos = { '3d': '/projetos/', '3D': '/projetos/', 'projetos': '/projetos/',
+                  'loja': '/', 'comercial': '/comercial/', 'adm': '/adm/' };
+  if (atalhos[alvo]) { location.replace(atalhos[alvo] + location.search + location.hash); return; }
+
+  // Rede de segurança: se o Firebase não responder em 6s, manda direto para o
+  // painel — lá dentro existe a mesma checagem e uma mensagem própria.
+  var respondeu = false;
+  setTimeout(function () {
+    if (!respondeu) location.replace('/adm/vendedor.html?v=' + encodeURIComponent(alvo));
+  }, 6000);
+
+  try {
+    firebase.initializeApp(firebaseConfig);
+    firebase.database().ref('dados/vs').once('value').then(function (snap) {
+      respondeu = true;
+      var vs = snap.val() || [];
+      if (!Array.isArray(vs)) vs = Object.keys(vs).map(function (k) { return vs[k]; });
+      vs = vs.filter(function (v) { return v && v.nome; });
+
+      // Nome completo bate: vai direto, mesmo que outro tenha o mesmo primeiro nome
+      var exato = vs.filter(function (v) { return normalizar(v.nome) === alvo; });
+      if (exato.length === 1) { location.replace(painelDo(exato[0])); return; }
+
+      var porPrimeiro = vs.filter(function (v) { return primeiroNome(v.nome) === alvo; });
+      if (porPrimeiro.length === 1) { location.replace(painelDo(porPrimeiro[0])); return; }
+      if (porPrimeiro.length > 1) {
+        // Dois "Paulo" cadastrados: em vez de escolher no chute, pergunta.
+        document.getElementById('opcoes').innerHTML = porPrimeiro.map(function (v) {
+          return '<a href="' + painelDo(v) + '">👤 ' + String(v.nome).replace(/[<>&]/g, '') + '</a>';
+        }).join('');
+        mostrar('escolha');
+        return;
+      }
+      naoAchou('/' + caminho);
+    }).catch(function () {
+      respondeu = true;
+      naoAchou('/' + caminho);
+    });
+  } catch (e) {
+    respondeu = true;
+    naoAchou('/' + caminho);
+  }
+})();
+</script>
+</body>
+</html>
