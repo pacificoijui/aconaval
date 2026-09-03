@@ -101,20 +101,30 @@
     mostrar('naoachou');
   }
 
-  // Só um pedaço, sem barra no meio e sem extensão, pode ser nome de vendedor.
-  // "/comercial/x" ou "/produto.htm" não são — esses merecem o 404 normal.
+  // O link do vendedor é /nome/saldo. O /nome sozinho também vale, porque é
+  // curto e alguém vai digitar assim. Qualquer outro formato — "/comercial/x",
+  // "/produto.htm", três pedaços — não é nome de vendedor e merece o 404 normal.
+  var SUFIXOS = ['saldo', 'saldos', 'comissao', 'comissoes', 'painel'];
   var caminho = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ''));
-  var ehNome = caminho && caminho.indexOf('/') === -1 && caminho.indexOf('.') === -1;
-  var alvo = normalizar(caminho);
+  var partes = caminho.split('/').filter(Boolean);
+  var temPonto = partes.length && partes[0].indexOf('.') >= 0;
+  var nomeBruto = '';
+  if (!temPonto) {
+    if (partes.length === 1) nomeBruto = partes[0];
+    else if (partes.length === 2 && SUFIXOS.indexOf(normalizar(partes[1])) >= 0) nomeBruto = partes[0];
+  }
+  var alvo = normalizar(nomeBruto);
 
-  if (!ehNome) { naoAchou('/' + caminho); return; }
+  if (!alvo) { naoAchou('/' + caminho); return; }
 
   // Atalhos fixos do site. Normalmente nem chegam aqui — /3d é uma pasta de
   // verdade e o próprio servidor resolve. Ficam como rede de segurança para
   // quem digita sem a barra final e não recebe o redirecionamento.
-  var atalhos = { '3d': '/projetos/', '3D': '/projetos/', 'projetos': '/projetos/',
+  var atalhos = { '3d': '/projetos/', 'projetos': '/projetos/',
                   'loja': '/', 'comercial': '/comercial/', 'adm': '/adm/' };
-  if (atalhos[alvo]) { location.replace(atalhos[alvo] + location.search + location.hash); return; }
+  if (partes.length === 1 && atalhos[alvo]) {
+    location.replace(atalhos[alvo] + location.search + location.hash); return;
+  }
 
   // Rede de segurança: se o Firebase não responder em 6s, manda direto para o
   // painel — lá dentro existe a mesma checagem e uma mensagem própria.

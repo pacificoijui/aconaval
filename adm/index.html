@@ -1801,11 +1801,12 @@ function salvarEditVendedor(){
   fecharEditVendedor();
 }
 
-/* Link curto do vendedor: www.aconaval.com/paulo em vez do endereço comprido
-   com "adm/vendedor.html?v=". Quem resolve o atalho é o 404.html na raiz do
-   site, que compara o nome do endereço com a lista de vendedores. Por isso o
-   atalho usa o PRIMEIRO nome — e cai para o nome inteiro com hífen quando dois
-   vendedores começam igual, senão um roubaria o link do outro. */
+/* Link curto do vendedor: www.aconaval.com/paulo/saldo em vez do endereço
+   comprido com "adm/vendedor.html?v=". Quem resolve o atalho é o 404.html na
+   raiz do site, que compara o nome do endereço com a lista de vendedores.
+   Por isso o atalho usa o PRIMEIRO nome — e cai para o nome inteiro com hífen
+   quando dois vendedores começam igual, senão um roubaria o link do outro.
+   O /nome sem o /saldo continua funcionando, para quem digitar só isso. */
 function apelidoDoVend(v){
   const limpo = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,' ').trim();
@@ -1819,7 +1820,7 @@ function linkCurtoVend(v){
   // atalho não vale, então ali mostramos o endereço deste mesmo servidor.
   const oficial = /(^|\.)aconaval\.com$/.test(location.hostname);
   const raiz = oficial ? (location.origin + '/') : 'https://www.aconaval.com/';
-  return raiz + apelidoDoVend(v);
+  return raiz + apelidoDoVend(v) + '/saldo';
 }
 function renderLinksVendedores(){
   const el=document.getElementById('lista-links-vend');
