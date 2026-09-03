@@ -85,6 +85,15 @@ select{font-size:14px;padding:8px 10px;border:1px solid #d0d4d8;border-radius:8p
 .faixa-card.neutra .fx-quebra{border-top:1px dashed #e6e9ee;color:#666}
 .faixa-card .fx-quebra .l{display:flex;justify-content:space-between;gap:10px}
 .venda-data{font-size:10.5px;color:#aaa;margin-top:6px}
+.divida-card{background:#fff;border:1px solid #F3D7D7;border-left:4px solid #A32D2D;border-radius:14px;
+  padding:16px 18px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.divida-card .dv-tit{font-size:12px;font-weight:700;color:#A32D2D;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
+.divida-card .dv-valor{font-size:26px;font-weight:800;color:#A32D2D;line-height:1.1}
+.divida-card .dv-sub{font-size:11px;color:#999;text-transform:uppercase;letter-spacing:.3px;margin-top:3px}
+.divida-card .dv-linha{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:#555;
+  padding:7px 0;border-top:1px solid #f4f6f8}
+.divida-card .dv-linha strong{white-space:nowrap}
+.divida-card .dv-nota{font-size:11px;color:#999;line-height:1.6;margin-top:10px}
 .sec-titulo{font-size:12px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin:16px 0 10px;padding-top:14px;border-top:1px solid #f0f2f5}
 .sec-titulo.roxo{color:#534AB7}
 .sec-titulo.laranja{color:#854F0B}
@@ -164,6 +173,7 @@ select{font-size:14px;padding:8px 10px;border:1px solid #d0d4d8;border-radius:8p
     </div>
     <div id="metrics-wrap" class="metrics-grid"></div>
     <div id="faixa-wrap"></div>
+    <div id="divida-wrap"></div>
     <div class="card">
       <div id="tabela-pedidos"></div>
       <div id="extras"></div>
@@ -191,6 +201,7 @@ const ord=c=>{const p=c.split('_');return parseInt(p[1])*100+MS.indexOf(p[0]);};
 
 let vendedor=null,pedidos=[],adiantamentos=[],produtos=[],bonusLista=[],transfs=[],estornos=[];
 let faixas=null; // faixas progressivas (vem do adm; null = padrão)
+let divida=null; // dívida deste vendedor (vem do adm; null = não tem)
 
 /* ===== FAIXAS PROGRESSIVAS (espelha a regra do administrativo) =====
    Conta o que ESTE vendedor vendeu no mês. O percentual dele é a base e o
@@ -239,6 +250,46 @@ function faixaDoTotal(total){
     proxima: prox?{mult:prox.mult,falta:Math.max(0,teto-t),
                    bonusPct: primeiro>0?Math.round((prox.mult/primeiro-1)*100):0}:null};
 }
+/* ===== DÍVIDA (espelha a conta do administrativo, só para ver) =====
+   O juro é lançado todo quinto dia útil sobre o saldo devedor. Juro não pago
+   fica em aberto e NÃO entra no capital — não vira juro sobre juro. O capital
+   só cai com o abatimento que o escritório lança a partir da comissão. */
+function lancDiv(){ return (divida && Array.isArray(divida.lancamentos)) ? divida.lancamentos : []; }
+function temDivida(){ return !!(divida && divida.ativo); }
+function taxaDiv(){ const t=numBR(divida&&divida.taxa); return isNaN(t)?1:t; }
+function capitalHoje(){
+  if(!divida) return 0;
+  let c=numBR(divida.capitalInicial)||0;
+  lancDiv().forEach(l=>{
+    if(l.tipo==='abatimento') c-=numBR(l.val)||0;
+    if(l.tipo==='acrescimo')  c+=numBR(l.val)||0;
+  });
+  return parseFloat(Math.max(0,c).toFixed(2));
+}
+function jurosEmAberto(){
+  const l=lancDiv();
+  const lancado=l.filter(x=>x.tipo==='juros').reduce((s,x)=>s+(numBR(x.val)||0),0);
+  const pago=l.filter(x=>x.tipo==='pagJuros').reduce((s,x)=>s+(numBR(x.val)||0),0);
+  return parseFloat((lancado-pago).toFixed(2));
+}
+function abatimentoDoMes(mes,ano){
+  return lancDiv().filter(l=>l.tipo==='abatimento'&&l.mes===mes&&l.ano===ano)
+    .reduce((s,l)=>s+(numBR(l.val)||0),0);
+}
+function jurosDoMes(mes,ano){
+  return lancDiv().find(l=>l.tipo==='juros'&&l.mes===mes&&l.ano===ano)||null;
+}
+function diaUtilDoMes(ano,mesIdx,n){
+  const d=new Date(ano,mesIdx,1); let c=0;
+  while(d.getMonth()===mesIdx){
+    const w=d.getDay();
+    if(w!==0&&w!==6){ c++; if(c===n) return new Date(d); }
+    d.setDate(d.getDate()+1);
+  }
+  return null;
+}
+function dataJurosDoMes(mes,ano){ const i=MS.indexOf(mes); return (i<0||!ano)?null:diaUtilDoMes(parseInt(ano),i,5); }
+
 /* Data em que a comissão foi registrada */
 function dataReg(x){
   const iso=x&&(x.dtReg||x.cancEm);
@@ -372,7 +423,9 @@ function saldoDoMes(mes,ano){
   const em=estornos.filter(e=>e.mes===mes&&e.ano===ano).reduce((s,e)=>s+comDoEstorno(e),0);
   const bm=bonusLista.filter(b=>b.mes===mes&&b.ano===ano).reduce((s,b)=>s+(Number(b.val)||0),0);
   const am=adiantamentos.filter(a=>a.mes===mes&&a.ano===ano).reduce((s,a)=>s+(Number(a.val)||0),0);
-  return cm+em+bm-am+saldoTransferidoEntra(mes,ano);
+  // A parte da comissão que foi para o capital não é sacada.
+  const ab=temDivida()?abatimentoDoMes(mes,ano):0;
+  return cm+em+bm-am-ab+saldoTransferidoEntra(mes,ano);
 }
 function aplicarViradasVirtuais(){
   const keys=[];
@@ -421,9 +474,11 @@ if(!nomeUrl){
 
     produtos=d.prods||[];
     faixas=Array.isArray(d.faixas)&&d.faixas.length?d.faixas:null;
+    const todasDividas=d.dividas||{};
     const vs=d.vs||[];
     vendedor=vs.find(v=>(v.nome||'').toLowerCase().trim()===nomeUrl);
     if(!vendedor){mostrarErro();return;}
+    divida=todasDividas[String(vendedor.id)]||null;
 
     const todosPs=normalizarPedidos(d.ps,vs);
     const visto={};
@@ -486,6 +541,50 @@ if(!nomeUrl){
 function mostrarErro(){
   document.getElementById('loading').style.display='none';
   document.getElementById('erro').style.display='block';
+}
+
+/* Cartão da dívida: o vendedor vê quanto ainda deve, o juro do quinto dia útil
+   e quanto da comissão do mês foi para abater o capital. Só leitura — quem
+   lança qualquer coisa aqui é o escritório. */
+function renderDividaCard(f, fMes, fAno){
+  const wrap = document.getElementById('divida-wrap');
+  if (!wrap) return;
+  if (!temDivida()) { wrap.innerHTML = ''; return; }
+
+  const capital = capitalHoje();
+  const aberto  = jurosEmAberto();
+  const taxa    = taxaDiv();
+  const hoje    = new Date();
+  const mesRef  = f ? fMes : MS[hoje.getMonth()];
+  const anoRef  = f ? fAno : hoje.getFullYear();
+  const jm      = jurosDoMes(mesRef, anoRef);
+  const abat    = abatimentoDoMes(mesRef, anoRef);
+  const venc    = dataJurosDoMes(mesRef, anoRef);
+
+  let h = '<div class="divida-card">';
+  h += '<div class="dv-tit">💳 Sua dívida</div>';
+  h += '<div class="dv-valor">' + fmt(capital) + '</div><div class="dv-sub">Saldo devedor</div>';
+
+  if (jm) {
+    h += '<div class="dv-linha"><span>Juro de ' + mesRef + ' ' + anoRef + ' ('
+       + taxa.toLocaleString('pt-BR',{maximumFractionDigits:2}) + '% sobre ' + fmt(jm.base) + ')</span>'
+       + '<strong>' + fmt(jm.val) + '</strong></div>';
+  } else if (venc && venc.getTime() > Date.now()) {
+    h += '<div class="dv-linha"><span>Próximo juro em '
+       + venc.toLocaleDateString('pt-BR') + ' (' + taxa.toLocaleString('pt-BR',{maximumFractionDigits:2}) + '%)</span>'
+       + '<strong>' + fmt(capital * taxa / 100) + '</strong></div>';
+  }
+  if (aberto > 0.005) {
+    h += '<div class="dv-linha" style="color:#854F0B"><span>Juro em aberto</span><strong>' + fmt(aberto) + '</strong></div>';
+  }
+  if (abat > 0.005) {
+    h += '<div class="dv-linha" style="color:#185FA5"><span>Da comissão de ' + mesRef + ' ' + anoRef
+       + ' foi para a dívida</span><strong>− ' + fmt(abat) + '</strong></div>';
+  }
+  h += '<div class="dv-nota">O juro é lançado todo <strong>' + 5 + 'º dia útil</strong> sobre o saldo devedor '
+     + 'e não entra na dívida — não vira juro sobre juro. O saldo devedor só diminui com o que for abatido da comissão.</div>';
+  h += '</div>';
+  wrap.innerHTML = h;
 }
 
 /* Cartão da faixa: é aqui que o vendedor variável vê o bônus conquistado.
@@ -558,10 +657,12 @@ function renderConteudo(){
   const tb=mbs.reduce((s,b)=>s+b.val,0);
   const tv=mps.reduce((s,p)=>s+p.val,0);
   const ta=mas.reduce((s,a)=>s+a.val,0);
-  const tl=tc+tb-ta;
   const lbl=f?f.replace('_',' '):'todos os meses';
   // Saldo transferido entre meses (somente leitura para o vendedor)
   const fMes=f?f.split('_')[0]:null,fAno=f?parseInt(f.split('_')[1]):null;
+  // Parte da comissão que foi para o capital da dívida: não é sacada.
+  const tabat=(temDivida()&&f)?abatimentoDoMes(fMes,fAno):0;
+  const tl=tc+tb-ta-tabat;
   const entra=f?saldoTransferidoEntra(fMes,fAno):0;
   const saida=f?transferenciaSaida(fMes,fAno):null;
   const net=tl+entra;
@@ -579,14 +680,16 @@ function renderConteudo(){
   if(test<-0.005){mh+='<div class="metric" style="background:#FCEBEB"><div class="val" style="color:#A32D2D">'+fmt(test)+'</div><div class="lbl">Estornos (cancel.)</div></div>';}
   if(tb>0){mh+='<div class="metric roxo" style="background:#F5F3FF"><div class="val" style="color:#534AB7">'+fmt(tb)+'</div><div class="lbl">Bônus números</div></div>';}
   if(ta>0){mh+='<div class="metric laranja" style="background:#FFF4E0"><div class="val">'+fmt(ta)+'</div><div class="lbl">Adiantamentos</div></div>';}
-  if(f&&(temTransf||tb>0||ta>0||test<-0.005)){
+  if(tabat>0.005){mh+='<div class="metric" style="background:#FCEBEB"><div class="val" style="color:#A32D2D">'+fmt(tabat)+'</div><div class="lbl">Foi p/ a dívida</div></div>';}
+  if(f&&(temTransf||tb>0||ta>0||test<-0.005||tabat>0.005)){
     const neg=saldoFinal<-0.005;
     mh+='<div class="metric verde full"'+(neg?' style="background:#FCEBEB"':'')+'><div class="val"'+(neg?' style="color:#A32D2D"':'')+'>'+fmt(saldoFinal)+'</div><div class="lbl">'+(saida?'Saldo do mês (transferido)':(neg?'⚠️ Saldo negativo':'💰 A receber (líquido)'))+'</div></div>';
-  } else if(tb>0||ta>0||test<-0.005){
+  } else if(tb>0||ta>0||test<-0.005||tabat>0.005){
     mh+='<div class="metric verde full"><div class="val">'+fmt(tl)+'</div><div class="lbl">💰 A receber (líquido)</div></div>';
   }
   document.getElementById('metrics-wrap').innerHTML=mh;
   renderFaixaCard(f,fMes,fAno);
+  renderDividaCard(f,fMes,fAno);
 
   // Atualiza total de vendas no topo
   const topoDiv=document.getElementById('topo-vendas');

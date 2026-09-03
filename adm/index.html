@@ -1065,6 +1065,7 @@ function normalizarPedidos(lista){
 const HEXCORES=['#185FA5','#3B6D11','#BA7517','#D85A30','#7F77DD','#1D9E75'];
 let vs=[],ps=[],ads=[],prods=[],anus=[],sts={},bonus=[],transfs=[],ta=null;
 let faixas=null; // faixas progressivas de comissão dos vendedores variáveis (null = padrão)
+let dividas={};  // dívida por vendedor (vid -> {ativo, capitalInicial, taxa, inicioMes, inicioAno, lancamentos:[]})
 let anunv={};   // config de anúncios por vendedor ('v'+vid -> {num, dia, prods:[], ufs:[]})
 let metaAcc=''; // ID da conta Meta Ads (act_...) — sincronizado na nuvem
 let metaSpend=null; // gasto real puxado da Meta (transitório, não salvo)
@@ -1100,7 +1101,7 @@ let ultimaAssinatura = null;
 function assinaturaDados(d) {
   try {
     return JSON.stringify([d.vs, d.ps, d.ads, d.prods, d.anus, d.sts, d.bonus,
-                           d.transfs, d.pgtos, d.comsts, d.compag, d.anunv, d.metaAcc, d.faixas]);
+                           d.transfs, d.pgtos, d.comsts, d.compag, d.anunv, d.metaAcc, d.faixas, d.dividas]);
   } catch(_) { return null; }
 }
 
@@ -1125,7 +1126,7 @@ function salvar() {
   // update() em vez de set(): grava só as chaves listadas e PRESERVA o nó
   // 'pends' (aprovações do painel de entregas), que é gerenciado por
   // operações child() dos dois lados — evita sobrescrever dados de terceiros.
-  const dados = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, comMigrado, anunv, metaAcc, faixas: faixasAtivas()};
+  const dados = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, comMigrado, anunv, metaAcc, faixas: faixasAtivas(), dividas};
   REF.update(dados)
     .then(() => {
       const si = document.getElementById('save-info');
@@ -1138,7 +1139,7 @@ function salvar() {
       console.error('Erro ao salvar:', e);
       // fallback localStorage (backup completo, sem eval)
       try {
-        const mapa = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas: faixasAtivas()};
+        const mapa = {vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas: faixasAtivas(), dividas};
         Object.keys(mapa).forEach(k => localStorage.setItem('an_'+k, JSON.stringify(mapa[k])));
       } catch(_) {}
       const si = document.getElementById('save-info');
@@ -1173,6 +1174,7 @@ function carregar() {
         anunv = d.anunv || {};
         metaAcc = d.metaAcc || '';
         faixas = Array.isArray(d.faixas) && d.faixas.length ? d.faixas : null;
+        dividas = d.dividas || {};
         recalcFaixas();
       } else {
         // Tenta recuperar do localStorage se Firebase estiver vazio
@@ -1183,20 +1185,22 @@ function carregar() {
           bonus = ler('bonus', bonus); transfs = ler('transfs', transfs); pgtos = ler('pgtos', pgtos);
           comsts = ler('comsts', comsts); compag = ler('compag', compag);
           anunv = ler('anunv', anunv); metaAcc = ler('metaAcc', metaAcc);
-        faixas = ler('faixas', faixas); recalcFaixas();
-          faixas = ler('faixas', faixas); recalcFaixas();
+        faixas = ler('faixas', faixas); dividas = ler('dividas', dividas); recalcFaixas();
+          faixas = ler('faixas', faixas); dividas = ler('dividas', dividas); recalcFaixas();
           // Se tinha dados locais, migra pro Firebase
           if (vs.length || ps.length) salvar();
         } catch(_) {}
       }
       document.querySelector('.container').style.opacity = '1';
       document.querySelector('.container').style.pointerEvents = 'auto';
+      // Juro do quinto dia útil dos meses que já passaram (idempotente)
+      if (gerarJurosPendentes()) salvar();
       // Virada automática de saldo dos meses encerrados (antes de renderizar)
       autoTransferirSaldos();
       // Migração única: pedidos que já estavam 'entregue' entram como comissão paga
       migrarComissoesPagas();
       // Renderiza tudo após carregar
-      ultimaAssinatura = assinaturaDados({vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas});
+      ultimaAssinatura = assinaturaDados({vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas, dividas});
       renderV(); renderSel(); renderTabs(); renderF(); renderProd(); renderSelProd(); renderLinksVendedores(); renderAnunCfg(); renderFaixas(); atualizarBadgePend(); if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
     })
     .catch(e => {
@@ -1209,7 +1213,7 @@ function carregar() {
         bonus = ler('bonus', bonus); transfs = ler('transfs', transfs); pgtos = ler('pgtos', pgtos);
         comsts = ler('comsts', comsts); compag = ler('compag', compag);
         anunv = ler('anunv', anunv); metaAcc = ler('metaAcc', metaAcc);
-        faixas = ler('faixas', faixas); recalcFaixas();
+        faixas = ler('faixas', faixas); dividas = ler('dividas', dividas); recalcFaixas();
       } catch(_) {}
       document.querySelector('.container').style.opacity = '1';
       document.querySelector('.container').style.pointerEvents = 'auto';
@@ -1235,9 +1239,10 @@ function carregar() {
     anunv = d.anunv || {};
     metaAcc = d.metaAcc || '';
     faixas = Array.isArray(d.faixas) && d.faixas.length ? d.faixas : null;
+    dividas = d.dividas || {};
     recalcFaixas();
     // Eco da nossa própria gravação: os dados já estão na tela, não redesenha.
-    const assin = assinaturaDados({vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas});
+    const assin = assinaturaDados({vs, ps, ads, prods, anus, sts, bonus, transfs, pgtos, comsts, compag, anunv, metaAcc, faixas, dividas});
     if (assin && assin === ultimaAssinatura) return;
     ultimaAssinatura = assin;
     // Se o usuário está digitando em algum campo (ex.: pagamento na tabela de
@@ -1386,6 +1391,121 @@ function recalcFaixas(){
     });
   });
 }
+/* ===================== DÍVIDA DO VENDEDOR =====================
+   O vendedor pode dever um valor para a empresa (capital). Todo QUINTO DIA
+   ÚTIL do mês incide um percentual sobre o saldo devedor — 1% por padrão.
+
+   Como foi combinado:
+   • O juro é uma conta À PARTE: você marca quando ele pagar (PIX, dinheiro,
+     desconto acertado). A comissão não é usada automaticamente para isso.
+   • Juro não pago fica EM ABERTO, separado do capital — não vira juro sobre
+     juro. A dívida em si só muda com abatimento ou acréscimo lançado por você.
+   • A comissão do mês é dividida por você: uma parte ele saca, outra parte
+     você lança como ABATIMENTO e ela reduz o capital.
+   • Dia útil = qualquer dia que não seja sábado nem domingo.
+
+   Tudo fica em lançamentos com data, então a conta é auditável linha a linha. */
+const DIVIDA_TAXA_PADRAO = 1;      // % ao mês
+const DIVIDA_DIA_UTIL    = 5;      // quinto dia útil
+
+/* N-ésimo dia útil de um mês (sábado e domingo não contam). */
+function diaUtilDoMes(ano, mesIdx, n){
+  const d = new Date(ano, mesIdx, 1);
+  let contados = 0;
+  while (d.getMonth() === mesIdx) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) { contados++; if (contados === n) return new Date(d); }
+    d.setDate(d.getDate() + 1);
+  }
+  return null;   // mês sem dias úteis suficientes (não acontece com n=5)
+}
+function dataJurosDoMes(mes, ano){
+  const i = MS.indexOf(mes);
+  if (i < 0 || !ano) return null;
+  return diaUtilDoMes(parseInt(ano), i, DIVIDA_DIA_UTIL);
+}
+function fmtData(d){ return d ? d.toLocaleDateString('pt-BR') : '—'; }
+
+function divDe(vid){ return (dividas || {})[String(vid)] || null; }
+function temDivida(vid){ const d = divDe(vid); return !!(d && d.ativo); }
+function lancDiv(vid){ const d = divDe(vid); return (d && Array.isArray(d.lancamentos)) ? d.lancamentos : []; }
+function taxaDiv(vid){ const d = divDe(vid); const t = numBR(d && d.taxa); return isNaN(t) ? DIVIDA_TAXA_PADRAO : t; }
+
+/* Capital devedor no fim de um mês. Sem mês, o capital de hoje.
+   Só abatimento e acréscimo mexem no capital — juro fica fora, de propósito. */
+function capitalAte(vid, mes, ano){
+  const d = divDe(vid);
+  if (!d) return 0;
+  const lim = (mes != null && ano != null) ? ord(ck(mes, ano)) : Infinity;
+  let c = numBR(d.capitalInicial) || 0;
+  lancDiv(vid).forEach(l => {
+    if (!l || MS.indexOf(l.mes) < 0) return;
+    if (ord(ck(l.mes, l.ano)) > lim) return;
+    if (l.tipo === 'abatimento') c -= numBR(l.val) || 0;
+    if (l.tipo === 'acrescimo')  c += numBR(l.val) || 0;
+  });
+  return parseFloat(Math.max(0, c).toFixed(2));
+}
+function capitalHoje(vid){ return capitalAte(vid); }
+
+function jurosDoMes(vid, mes, ano){
+  return lancDiv(vid).find(l => l.tipo === 'juros' && l.mes === mes && l.ano === ano) || null;
+}
+/* Juro lançado e ainda não pago — cobrado quando der, sem entrar no capital. */
+function jurosEmAberto(vid){
+  const l = lancDiv(vid);
+  const lancado = l.filter(x => x.tipo === 'juros').reduce((s, x) => s + (numBR(x.val) || 0), 0);
+  const pago    = l.filter(x => x.tipo === 'pagJuros').reduce((s, x) => s + (numBR(x.val) || 0), 0);
+  return parseFloat((lancado - pago).toFixed(2));
+}
+function jurosPagoDoMes(vid, mes, ano){
+  return lancDiv(vid).filter(l => l.tipo === 'pagJuros' && l.mes === mes && l.ano === ano)
+    .reduce((s, l) => s + (numBR(l.val) || 0), 0);
+}
+/* Parte da comissão do mês que você mandou para o capital. */
+function abatimentoDoMes(vid, mes, ano){
+  return lancDiv(vid).filter(l => l.tipo === 'abatimento' && l.mes === mes && l.ano === ano)
+    .reduce((s, l) => s + (numBR(l.val) || 0), 0);
+}
+
+/* Lança o juro dos meses cujo quinto dia útil já passou e que ainda não têm
+   lançamento. É idempotente (um por mês) e congela a BASE usada no cálculo,
+   para o valor não mudar depois se você lançar um abatimento retroativo. */
+function gerarJurosPendentes(){
+  let mudou = false;
+  const hoje = new Date();
+  const ordHoje = ord(ck(MS[hoje.getMonth()], hoje.getFullYear()));
+  Object.keys(dividas || {}).forEach(vid => {
+    const d = dividas[vid];
+    if (!d || !d.ativo) return;
+    const taxa = taxaDiv(vid);
+    if (!(taxa > 0)) return;
+    if (MS.indexOf(d.inicioMes) < 0 || !d.inicioAno) return;
+    if (!Array.isArray(d.lancamentos)) d.lancamentos = [];
+    let m = d.inicioMes, a = parseInt(d.inicioAno), guarda = 0;
+    while (ord(ck(m, a)) <= ordHoje && guarda++ < 240) {
+      const dia = dataJurosDoMes(m, a);
+      const pulado = Array.isArray(d.jurosPulados) && d.jurosPulados.indexOf(ck(m, a)) >= 0;
+      if (dia && dia.getTime() <= hoje.getTime() && !pulado && !jurosDoMes(vid, m, a)) {
+        const ant = mesAnterior(m, a);
+        const base = capitalAte(vid, ant.mes, ant.ano);
+        if (base > 0.005) {
+          d.lancamentos.push({
+            id: 'j' + a + '_' + MS.indexOf(m) + '_' + vid,
+            tipo: 'juros', mes: m, ano: a,
+            base: base, taxa: taxa,
+            val: parseFloat((base * taxa / 100).toFixed(2)),
+            dtReg: dia.toISOString(), auto: true
+          });
+          mudou = true;
+        }
+      }
+      const nx = proximoMes(m, a); m = nx.mes; a = nx.ano;
+    }
+  });
+  return mudou;
+}
+
 /* Data em que a comissão foi registrada, no formato dd/mm/aaaa. */
 function dataReg(x){
   const iso=x&&(x.dtReg||x.cancEm);
@@ -2442,7 +2562,9 @@ function calcSaldoMes(vid,mes,ano){
     +doMes.filter(p=>p.tipo==='estorno').reduce((s,p)=>s+comEstornoRegistro(p),0);
   const bm=bonus.filter(b=>b.vid===vid&&b.mes===mes&&b.ano===ano).reduce((s,b)=>s+(Number(b.val)||0),0);
   const am=ads.filter(a=>a.vid===vid&&a.mes===mes&&a.ano===ano).reduce((s,a)=>s+(Number(a.val)||0),0);
-  return cm+bm-am+saldoTransferidoEntra(vid,mes,ano);
+  // A parte da comissão mandada para o capital não é sacada: sai do saldo.
+  const abat=abatimentoDoMes(vid,mes,ano);
+  return cm+bm-am-abat+saldoTransferidoEntra(vid,mes,ano);
 }
 /* ===== VIRADA AUTOMÁTICA DE SALDO ============================
    Ao carregar o sistema, todo saldo (positivo OU negativo) de meses
@@ -2499,6 +2621,26 @@ function autoTransferirSaldos(){
   }
 }
 
+/* Um lançamento feito num mês que JÁ teve o saldo transferido deixa a
+   transferência com o valor velho — e o erro segue em cadeia para os meses
+   seguintes, porque cada mês recebe o saldo do anterior. Aqui a corrente é
+   refeita do mês alterado para a frente. */
+function ressincronizarTransferencias(vid,mes,ano){
+  const hj=new Date();
+  const atualOrd=ord(ck(MS[hj.getMonth()],hj.getFullYear()));
+  let m=mes,a=ano,guarda=0,mudou=false;
+  while(ord(ck(m,a))<atualOrd&&guarda++<240){
+    const t=transferenciaSaida(vid,m,a);
+    if(t){
+      // calcSaldoMes devolve o saldo ANTES da saída — é exatamente o que foi
+      // transferido, então os dois têm que bater.
+      const net=parseFloat(calcSaldoMes(vid,m,a).toFixed(2));
+      if(Math.abs((numBR(t.val)||0)-net)>0.005){t.val=net;mudou=true;}
+    }
+    const nx=proximoMes(m,a);m=nx.mes;a=nx.ano;
+  }
+  return mudou;
+}
 function transferirSaldo(vid){
   const f=document.getElementById('f-mes').value;
   if(!f){alert('Selecione um MÊS específico no filtro para transferir o saldo.');return;}
@@ -2530,7 +2672,8 @@ function linhaSaldo(label,val,cor,italic){
 /* Monta o quadro de saldo (com botão transferir quando um mês está filtrado) */
 function buildSaldoBox(v,f,tcPed,tb,ta2,test){
   test=test||0;
-  const baseLiq=tcPed+test+tb-ta2;
+  const abat=f?abatimentoDoMes(v.id,f.split('_')[0],parseInt(f.split('_')[1])):0;
+  const baseLiq=tcPed+test+tb-ta2-abat;
   if(!f){
     if(tb<=0&&ta2<=0&&test>=-0.005)return '';
     let h='<div style="background:#EAF3DE;border-radius:8px;padding:14px 18px;margin-top:14px">';
@@ -2559,6 +2702,7 @@ function buildSaldoBox(v,f,tcPed,tb,ta2,test){
   if(test<-0.005)h+=linhaSaldo('− Cancelamentos (estornos)',test,'#A32D2D');
   if(tb>0)h+=linhaSaldo('+ Bônus números',tb,'#534AB7');
   if(ta2>0)h+=linhaSaldo('− Adiantamentos',ta2,'#854F0B');
+  if(abat>0.005)h+=linhaSaldo('− Abatimento da dívida',abat,'#A32D2D');
   if(Math.abs(entra)>0.005)h+=linhaSaldo((entra>=0?'+ ':'− ')+'Saldo transferido de '+ant.mes+' '+ant.ano,entra,entra>=0?'#1D7A53':'#A32D2D',true);
   if(saida)h+=linhaSaldo('→ Transferido p/ '+saida.dMes+' '+saida.dAno,saida.val,'#185FA5',true);
   h+='<div style="border-top:1px solid '+bd+';padding-top:10px;margin-top:4px;display:flex;justify-content:space-between;align-items:center">';
@@ -2606,7 +2750,11 @@ function renderRel(){
   const tv=unique.reduce((s,p)=>s+p.val,0);
   const ta2=ma.reduce((s,a)=>s+(Number(a.val)||0),0);
   const totalBruto=tc+tb;
-  const tl=totalBruto-ta2;
+  // O que foi para o capital da dívida não é sacado: sai do líquido igual a um
+  // adiantamento. Sem isto a métrica do topo mostrava um saldo maior que o da
+  // caixa de saldo logo abaixo, na mesma tela.
+  const abatRel=f?abatimentoDoMes(v.id,f.split('_')[0],parseInt(f.split('_')[1])):0;
+  const tl=totalBruto-ta2-abatRel;
   const lbl=f?f.replace('_',' '):'todos os meses';
 
   let h='<div class="card">';
@@ -2621,6 +2769,7 @@ function renderRel(){
   if(test<-0.005){h+='<div class="metric" style="border-left:3px solid #A32D2D"><div class="val" style="color:#A32D2D">'+fmt(test)+'</div><div class="lbl">Estornos (cancel.)</div></div>';}
   if(tb>0){h+='<div class="metric roxo"><div class="val">'+fmt(tb)+'</div><div class="lbl">Bônus números</div></div>';}
   if(ta2>0){h+='<div class="metric laranja"><div class="val">'+fmt(ta2)+'</div><div class="lbl">Adiantamentos</div></div>';}
+  if(abatRel>0.005){h+='<div class="metric" style="border-left:3px solid #A32D2D"><div class="val" style="color:#A32D2D">'+fmt(abatRel)+'</div><div class="lbl">Abatido na dívida</div></div>';}
   if(f){
     const _fm=f.split('_')[0],_fa=parseInt(f.split('_')[1]);
     const _entra=saldoTransferidoEntra(v.id,_fm,_fa);
@@ -2705,10 +2854,246 @@ function renderRel(){
     h+='</tbody></table>';
   }
   h+=buildSaldoBox(v,f,tcPed,tb,ta2,test);
+  h+=boxDivida(v,f);
   el.innerHTML=h+'</div>';
   applyCardLabels('rel');
 }
 
+
+/* ========== PAINEL DA DÍVIDA (dentro do relatório do vendedor) ========== */
+function boxDivida(v, f){
+  const vid = v.id;
+  const d = divDe(vid);
+  const ligada = !!(d && d.ativo);
+  let h = '<div class="section-lbl" style="color:#A32D2D">💳 Dívida do vendedor</div>';
+
+  if (!ligada) {
+    h += '<div style="background:#f5f7fa;border:1px dashed #d0d4d8;border-radius:10px;padding:14px">'
+      + '<p style="font-size:12px;color:#888;margin:0 0 10px">Este vendedor não tem dívida cadastrada. '
+      + 'Ao ligar, todo <strong>quinto dia útil</strong> é lançado o juro do mês sobre o saldo devedor.</p>'
+      + formCfgDivida(vid, d)
+      + '</div>';
+    return h;
+  }
+
+  const capital  = capitalHoje(vid);
+  const aberto   = jurosEmAberto(vid);
+  const taxa     = taxaDiv(vid);
+  const hoje     = new Date();
+  const mesRef   = f ? f.split('_')[0] : MS[hoje.getMonth()];
+  const anoRef   = f ? parseInt(f.split('_')[1]) : hoje.getFullYear();
+  const jm       = jurosDoMes(vid, mesRef, anoRef);
+  const pagoMes  = jurosPagoDoMes(vid, mesRef, anoRef);
+  const abatMes  = abatimentoDoMes(vid, mesRef, anoRef);
+  const proxData = dataJurosDoMes(mesRef, anoRef);
+
+  h += '<div style="background:#FFF7F7;border:1px solid #F3D7D7;border-radius:10px;padding:14px 16px;margin-bottom:8px">';
+
+  // Números principais
+  h += '<div class="row" style="gap:8px;margin-bottom:12px">';
+  h += '<div class="metric" style="border-left:3px solid #A32D2D;background:#fff"><div class="val" style="color:#A32D2D">'+fmt(capital)+'</div><div class="lbl">Saldo devedor (capital)</div></div>';
+  h += '<div class="metric" style="background:#fff"><div class="val">'+taxa.toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</div><div class="lbl">Juro no '+DIVIDA_DIA_UTIL+'º dia útil</div></div>';
+  h += '<div class="metric" style="background:#fff'+(aberto>0.005?';border-left:3px solid #854F0B':'')+'"><div class="val"'+(aberto>0.005?' style="color:#854F0B"':'')+'>'+fmt(aberto)+'</div><div class="lbl">Juro em aberto</div></div>';
+  h += '</div>';
+
+  // Juro do mês em foco
+  h += '<div style="background:#fff;border-radius:8px;padding:12px 14px;margin-bottom:10px">';
+  h += '<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px">Juro de '+mesRef+' '+anoRef
+     + ' <span style="font-weight:400;color:#888">— vence em '+fmtData(proxData)+'</span></div>';
+  if (jm) {
+    h += '<div style="font-size:12px;color:#666;line-height:1.8">'
+       + taxa.toLocaleString('pt-BR',{maximumFractionDigits:2})+'% sobre '+fmt(jm.base)+' = <strong style="color:#A32D2D">'+fmt(jm.val)+'</strong>'
+       + (pagoMes>0.005 ? ' · pago neste mês: <strong style="color:#3B6D11">'+fmt(pagoMes)+'</strong>' : '')
+       + '</div>';
+  } else if (proxData && proxData.getTime() > Date.now()) {
+    h += '<div style="font-size:12px;color:#888">Ainda não venceu. Vai ser '+taxa.toLocaleString('pt-BR',{maximumFractionDigits:2})+'% sobre '+fmt(capital)+' = <strong>'+fmt(capital*taxa/100)+'</strong>.</div>';
+  } else {
+    h += '<div style="font-size:12px;color:#888">Sem juro lançado neste mês.</div>';
+  }
+  h += '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:10px">'
+     + '<div class="field" style="max-width:170px"><div class="label">Pagamento do juro (R$)</div>'
+     + '<input type="number" step="0.01" min="0" id="dv-pagjuros" placeholder="'+(aberto>0.005?aberto.toFixed(2):'0,00')+'"/></div>'
+     + '<button class="btn btn-primary" style="font-size:12px" onclick="registrarPagJuros('+vid+')">✓ Registrar pagamento</button>'
+     + '</div>';
+  h += '</div>';
+
+  // Abatimento vindo da comissão
+  if (f) {
+    const saldoMes = calcSaldoMes(vid, mesRef, anoRef);
+    h += '<div style="background:#fff;border-radius:8px;padding:12px 14px;margin-bottom:10px">';
+    h += '<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:4px">Comissão de '+mesRef+' '+anoRef+' — quanto vai abater o capital</div>';
+    h += '<div style="font-size:11px;color:#888;margin-bottom:8px">O que você lançar aqui sai do saque dele e reduz a dívida. '
+       + 'Já abatido neste mês: <strong>'+fmt(abatMes)+'</strong> · sobra para sacar: <strong style="color:#3B6D11">'+fmt(saldoMes)+'</strong></div>';
+    h += '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+       + '<div class="field" style="max-width:170px"><div class="label">Abater da comissão (R$)</div>'
+       + '<input type="number" step="0.01" min="0" id="dv-abater" placeholder="0,00"/></div>'
+       + '<button class="btn btn-primary" style="font-size:12px" onclick="registrarAbatimento('+vid+',\'' + mesRef + '\','+anoRef+')">↓ Abater no capital</button>'
+       + '</div></div>';
+  } else {
+    h += '<p style="font-size:12px;color:#888;margin:0 0 10px">Escolha um mês no filtro acima para lançar o abatimento da comissão daquele mês.</p>';
+  }
+
+  // Aumentar a dívida
+  h += '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px">'
+     + '<div class="field" style="max-width:170px"><div class="label">Aumentar a dívida (R$)</div>'
+     + '<input type="number" step="0.01" min="0" id="dv-acrescimo" placeholder="0,00"/></div>'
+     + '<div class="field" style="max-width:220px"><div class="label">Motivo</div>'
+     + '<input type="text" id="dv-acrescimo-obs" placeholder="Ex: novo adiantamento"/></div>'
+     + '<button class="btn" style="font-size:12px" onclick="registrarAcrescimoDivida('+vid+')">+ Lançar</button>'
+     + '</div>';
+
+  h += extratoDivida(vid, f);
+  h += '<details style="margin-top:10px"><summary style="font-size:11px;color:#888;cursor:pointer">⚙️ Configuração da dívida</summary>'
+     + '<div style="margin-top:8px">' + formCfgDivida(vid, d) + '</div></details>';
+  h += '</div>';
+  return h;
+}
+
+function formCfgDivida(vid, d){
+  const hoje = new Date();
+  const cap  = d ? (numBR(d.capitalInicial) || 0) : '';
+  const tx   = d ? taxaDiv(vid) : DIVIDA_TAXA_PADRAO;
+  const im   = (d && MS.indexOf(d.inicioMes) >= 0) ? d.inicioMes : MS[hoje.getMonth()];
+  const ia   = (d && d.inicioAno) ? d.inicioAno : hoje.getFullYear();
+  let h = '<div class="row" style="gap:8px;align-items:flex-end">';
+  h += '<div class="field" style="max-width:160px"><div class="label">Dívida inicial (R$)</div>'
+     + '<input type="number" step="0.01" min="0" id="dvc-capital" value="'+cap+'" placeholder="Ex: 50000"/></div>';
+  h += '<div class="field" style="max-width:120px"><div class="label">Juro ao mês (%)</div>'
+     + '<input type="number" step="0.01" min="0" id="dvc-taxa" value="'+tx+'"/></div>';
+  h += '<div class="field" style="max-width:150px"><div class="label">Cobrar a partir de</div><select id="dvc-mes">'
+     + MS.map(m => '<option'+(m===im?' selected':'')+'>'+m+'</option>').join('') + '</select></div>';
+  h += '<div class="field" style="max-width:110px"><div class="label">Ano</div>'
+     + '<input type="number" id="dvc-ano" value="'+ia+'"/></div>';
+  h += '<button class="btn btn-primary" style="font-size:12px" onclick="salvarCfgDivida('+vid+')">💾 Salvar</button>';
+  if (d && d.ativo) h += '<button class="btn" style="font-size:12px" onclick="desligarDivida('+vid+')">Desligar</button>';
+  h += '</div>';
+  h += '<p style="font-size:11px;color:#aaa;margin-top:6px">O juro é lançado sozinho todo '+DIVIDA_DIA_UTIL
+     + 'º dia útil (sábado e domingo não contam) sobre o saldo devedor. Juro não pago fica em aberto e '
+     + '<strong>não</strong> vira juro sobre juro.</p>';
+  return h;
+}
+
+/* Extrato: cada linha com data, o que foi e quanto sobrou de capital. */
+function extratoDivida(vid, f){
+  const lista = lancDiv(vid).slice().sort((a, b) => {
+    const om = ord(ck(a.mes, a.ano)) - ord(ck(b.mes, b.ano));
+    if (om !== 0) return om;
+    const ordem = { acrescimo: 0, juros: 1, pagJuros: 2, abatimento: 3 };
+    return (ordem[a.tipo] || 9) - (ordem[b.tipo] || 9);
+  });
+  if (!lista.length) return '<p style="font-size:12px;color:#888;margin:8px 0 0">Nenhum lançamento ainda.</p>';
+  const rot = { juros: '📈 Juro do mês', pagJuros: '✓ Pagamento de juro',
+                abatimento: '↓ Abatimento (da comissão)', acrescimo: '+ Aumento da dívida' };
+  const cor = { juros: '#A32D2D', pagJuros: '#3B6D11', abatimento: '#185FA5', acrescimo: '#854F0B' };
+  let corrente = numBR((divDe(vid) || {}).capitalInicial) || 0;
+  let h = '<div class="section-lbl" style="margin-top:14px">Extrato</div>';
+  h += '<div class="table-wrap"><table><thead><tr><th>Mês</th><th>Data</th><th>Lançamento</th>'
+     + '<th style="text-align:right">Valor</th><th style="text-align:right">Capital depois</th><th></th></tr></thead><tbody>';
+  const linhas = lista.map(l => {
+    if (l.tipo === 'abatimento') corrente -= numBR(l.val) || 0;
+    if (l.tipo === 'acrescimo')  corrente += numBR(l.val) || 0;
+    const mexeCapital = (l.tipo === 'abatimento' || l.tipo === 'acrescimo');
+    const destaque = f && ck(l.mes, l.ano) === f;
+    return '<tr'+(destaque?' style="background:#FFFBEA"':'')+'>'
+      + '<td><span class="badge-m">'+String(l.mes).substring(0,3)+' '+l.ano+'</span></td>'
+      + '<td style="font-size:11px;color:#888;white-space:nowrap">'+(dataReg(l)||'—')+'</td>'
+      + '<td style="font-size:12px">'+(rot[l.tipo]||l.tipo)
+        + (l.tipo === 'juros' ? ' <span style="color:#999;font-size:11px">('+numBR(l.taxa).toLocaleString('pt-BR',{maximumFractionDigits:2})+'% sobre '+fmt(l.base)+')</span>' : '')
+        + (l.obs ? ' <span style="color:#999;font-size:11px">— '+String(l.obs).replace(/[<>&]/g,'')+'</span>' : '')
+      + '</td>'
+      + '<td style="text-align:right;font-weight:600;color:'+(cor[l.tipo]||'#333')+'">'+fmt(l.val)+'</td>'
+      + '<td style="text-align:right;color:'+(mexeCapital?'#333':'#bbb')+'">'+(mexeCapital?fmt(Math.max(0,corrente)):'—')+'</td>'
+      + '<td style="text-align:right"><button class="del" onclick="removerLancDivida('+vid+',\''+l.id+'\')">✕</button></td></tr>';
+  });
+  h += linhas.join('') + '</tbody></table></div>';
+  return h;
+}
+
+/* ── ações ── */
+function garantirDivida(vid){
+  if (!dividas) dividas = {};
+  if (!dividas[String(vid)]) dividas[String(vid)] = { ativo: false, capitalInicial: 0, taxa: DIVIDA_TAXA_PADRAO, lancamentos: [] };
+  const d = dividas[String(vid)];
+  if (!Array.isArray(d.lancamentos)) d.lancamentos = [];
+  return d;
+}
+function salvarCfgDivida(vid){
+  const cap = numBR((document.getElementById('dvc-capital') || {}).value);
+  const tx  = numBR((document.getElementById('dvc-taxa') || {}).value);
+  const mes = (document.getElementById('dvc-mes') || {}).value;
+  const ano = parseInt((document.getElementById('dvc-ano') || {}).value);
+  if (isNaN(cap) || cap < 0)  { alert('Informe a dívida inicial.'); return; }
+  if (isNaN(tx) || tx < 0)    { alert('Informe o juro ao mês.'); return; }
+  if (MS.indexOf(mes) < 0 || isNaN(ano) || ano < 2020) { alert('Informe o mês e o ano de início.'); return; }
+  const d = garantirDivida(vid);
+  d.ativo = true; d.capitalInicial = cap; d.taxa = tx; d.inicioMes = mes; d.inicioAno = ano;
+  gerarJurosPendentes();
+  salvar(); renderRel();
+}
+function desligarDivida(vid){
+  if (!confirm('Desligar a dívida deste vendedor?\n\nOs lançamentos ficam guardados — é só religar para vê-los de novo.')) return;
+  const d = garantirDivida(vid);
+  d.ativo = false;
+  salvar(); renderRel();
+}
+function registrarPagJuros(vid){
+  const el = document.getElementById('dv-pagjuros');
+  const val = numBR(el && el.value);
+  if (isNaN(val) || val <= 0) { alert('Informe o valor pago do juro.'); return; }
+  const aberto = jurosEmAberto(vid);
+  if (val > aberto + 0.005 &&
+      !confirm('O juro em aberto é ' + fmt(aberto) + ' e você está lançando ' + fmt(val) + '.\n\nLançar mesmo assim?')) return;
+  const d = garantirDivida(vid);
+  d.lancamentos.push({ id: 'pj' + Date.now(), tipo: 'pagJuros', mes: refMes(), ano: refAno(),
+                       val: val, dtReg: new Date().toISOString() });
+  if (el) el.value = '';
+  salvar(); renderRel();
+}
+function registrarAbatimento(vid, mes, ano){
+  const el = document.getElementById('dv-abater');
+  const val = numBR(el && el.value);
+  if (isNaN(val) || val <= 0) { alert('Informe quanto da comissão vai abater o capital.'); return; }
+  const capital = capitalHoje(vid);
+  if (val > capital + 0.005 &&
+      !confirm('A dívida é ' + fmt(capital) + ' e você está abatendo ' + fmt(val) + '.\n\nLançar mesmo assim?')) return;
+  const sobra = calcSaldoMes(vid, mes, ano);
+  if (val > sobra + 0.005 &&
+      !confirm('A comissão que sobra em ' + mes + ' ' + ano + ' é ' + fmt(sobra) + ' e você está abatendo ' + fmt(val) +
+               '.\n\nIsso deixa o mês negativo para o vendedor. Lançar mesmo assim?')) return;
+  const d = garantirDivida(vid);
+  d.lancamentos.push({ id: 'ab' + Date.now(), tipo: 'abatimento', mes: mes, ano: ano,
+                       val: val, dtReg: new Date().toISOString(), obs: 'Parte da comissão de ' + mes + ' ' + ano });
+  ressincronizarTransferencias(vid, mes, ano);
+  if (el) el.value = '';
+  salvar(); renderRel(); renderF();
+}
+function registrarAcrescimoDivida(vid){
+  const el = document.getElementById('dv-acrescimo');
+  const obsEl = document.getElementById('dv-acrescimo-obs');
+  const val = numBR(el && el.value);
+  if (isNaN(val) || val <= 0) { alert('Informe o valor a acrescentar na dívida.'); return; }
+  const d = garantirDivida(vid);
+  d.lancamentos.push({ id: 'ac' + Date.now(), tipo: 'acrescimo', mes: refMes(), ano: refAno(),
+                       val: val, dtReg: new Date().toISOString(), obs: (obsEl && obsEl.value.trim()) || '' });
+  if (el) el.value = '';
+  if (obsEl) obsEl.value = '';
+  salvar(); renderRel();
+}
+function removerLancDivida(vid, id){
+  const d = garantirDivida(vid);
+  const l = d.lancamentos.find(x => String(x.id) === String(id));
+  if (!l) return;
+  if (!confirm('Remover este lançamento da dívida?')) return;
+  d.lancamentos = d.lancamentos.filter(x => String(x.id) !== String(id));
+  if (l.tipo === 'abatimento') ressincronizarTransferencias(vid, l.mes, l.ano);
+  // Juro apagado à mão não pode voltar sozinho no próximo carregamento.
+  if (l.tipo === 'juros') {
+    d.jurosPulados = Array.isArray(d.jurosPulados) ? d.jurosPulados : [];
+    const chave = ck(l.mes, l.ano);
+    if (!d.jurosPulados.includes(chave)) d.jurosPulados.push(chave);
+  }
+  salvar(); renderRel(); renderF();
+}
 
 /* ========== PDF VENDEDOR ========== */
 function pdfVendedor(vid){
@@ -2730,7 +3115,8 @@ function pdfVendedor(vid){
   const tv=uniq.reduce((s,p)=>s+p.val,0);
   const ta2=ma.reduce((s,a)=>s+(Number(a.val)||0),0);
   const totalBruto=tc+tb;
-  const tl=totalBruto-ta2;
+  const abatPdf=f?abatimentoDoMes(vid,_fmPre,_faPre):0;
+  const tl=totalBruto-ta2-abatPdf;
   const r=f?f.replace('_',' '):'Todos os meses';
 
   let ln='';
@@ -2814,13 +3200,14 @@ function pdfVendedor(vid){
   const _saldoFinalP=_saidaP?(_netP-_saidaP.val):_netP;
   const _temTransf=f&&(Math.abs(_entraP)>0.005||_saidaP);
   const _antP=f?mesAnterior(_fmP,_faP):null;
-  const resumoLiquido=(tb>0||ta2>0||_temTransf||test<-0.005)?
+  const resumoLiquido=(tb>0||ta2>0||_temTransf||test<-0.005||abatPdf>0.005)?
     '<div style="background:'+(_saldoFinalP>=0?'#EAF3DE':'#FCEBEB')+';border-radius:8px;padding:14px 18px;margin-top:20px">'
     +'<table style="margin:0"><tbody>'
     +'<tr><td style="color:#666;border:none;padding:4px 0">Comissão pedidos</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600">'+fmt(tcPed)+'</td></tr>'
     +(test<-0.005?'<tr><td style="color:#A32D2D;border:none;padding:4px 0">− Cancelamentos (estornos)</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600;color:#A32D2D">'+fmt(test)+'</td></tr>':'')
     +(tb>0?'<tr><td style="color:#534AB7;border:none;padding:4px 0">+ Bônus números</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600;color:#534AB7">'+fmt(tb)+'</td></tr>':'')
     +(ta2>0?'<tr><td style="color:#854F0B;border:none;padding:4px 0">− Adiantamentos</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600;color:#854F0B">'+fmt(ta2)+'</td></tr>':'')
+    +(abatPdf>0.005?'<tr><td style="color:#A32D2D;border:none;padding:4px 0">− Abatimento da dívida</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600;color:#A32D2D">'+fmt(abatPdf)+'</td></tr>':'')
     +(Math.abs(_entraP)>0.005?'<tr><td style="color:'+(_entraP>=0?'#1D7A53':'#A32D2D')+';border:none;padding:4px 0">'+(_entraP>=0?'+':'−')+' Saldo transferido de '+_antP.mes+' '+_antP.ano+'</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600;color:'+(_entraP>=0?'#1D7A53':'#A32D2D')+'">'+fmt(Math.abs(_entraP))+'</td></tr>':'')
     +(_saidaP?'<tr><td style="color:#185FA5;border:none;padding:4px 0">→ Transferido p/ '+_saidaP.dMes+' '+_saidaP.dAno+'</td><td style="text-align:right;border:none;padding:4px 0;font-weight:600;color:#185FA5">'+fmt(Math.abs(_saidaP.val))+'</td></tr>':'')
     +'<tr style="border-top:1px solid #c5e0ab"><td style="font-weight:700;color:'+(_saldoFinalP>=0?'#3B6D11':'#A32D2D')+';font-size:14px;border:none;padding:10px 0 4px">'+(_saidaP?'SALDO DO MÊS':(_saldoFinalP>=0?'💰 A PAGAR (LÍQUIDO)':'⚠️ VENDEDOR DEVE'))+'</td>'
@@ -3221,7 +3608,7 @@ function pdfEntregas(){
 
 /* ========== BACKUP ========== */
 function exportarBackup(){
-  const d={vs,ps,ads,prods,anus,sts,bonus,transfs,pgtos,comsts,compag,anunv,metaAcc,faixas:faixasAtivas(),data:new Date().toISOString()};
+  const d={vs,ps,ads,prods,anus,sts,bonus,transfs,pgtos,comsts,compag,anunv,metaAcc,faixas:faixasAtivas(),dividas,data:new Date().toISOString()};
   const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);
   a.download='backup_aco_naval_'+new Date().toISOString().split('T')[0]+'.json';a.click();
@@ -3235,7 +3622,7 @@ function importarBackup(e){
     vs=d.vs||d.vendedores||[];ps=normalizarPedidos(d.ps||d.pedidos);
     ads=d.ads||d.adiantamentos||[];prods=d.prods||d.produtos||[];
     anus=d.anus||d.anuncios||[];sts=d.sts||{};bonus=d.bonus||[];transfs=d.transfs||[];pgtos=d.pgtos||{};
-    comsts=d.comsts||{};compag=d.compag||{};anunv=d.anunv||{};metaAcc=d.metaAcc||'';faixas=Array.isArray(d.faixas)&&d.faixas.length?d.faixas:null;
+    comsts=d.comsts||{};compag=d.compag||{};anunv=d.anunv||{};metaAcc=d.metaAcc||'';faixas=Array.isArray(d.faixas)&&d.faixas.length?d.faixas:null;dividas=d.dividas||{};
     salvar();renderV();renderSel();renderTabs();renderF();renderProd();renderSelProd();renderAnunCfg(true);
     alert('Backup importado!');
   }catch(err){alert('Erro: '+err.message);}};
@@ -3244,7 +3631,7 @@ function importarBackup(e){
 function limparTudo(){
   if(!confirm('Apagar TODOS os dados?'))return;
   if(!confirm('Confirma? Não pode ser desfeito e apaga também da NUVEM (todos os dispositivos).'))return;
-  vs=[];ps=[];ads=[];prods=[];anus=[];sts={};bonus=[];transfs=[];pgtos={};pends={};comsts={};compag={};comMigrado=false;ta=null;anunv={};metaAcc='';metaSpend=null;faixas=null;
+  vs=[];ps=[];ads=[];prods=[];anus=[];sts={};bonus=[];transfs=[];pgtos={};pends={};comsts={};compag={};comMigrado=false;ta=null;anunv={};metaAcc='';metaSpend=null;faixas=null;dividas={};
   ['vs','ps','ads','prods','anus','sts','bonus','transfs','pgtos','comsts','compag','anunv','metaAcc','metaToken'].forEach(k=>localStorage.removeItem('an_'+k));
   // Antes só limpava localmente e os dados voltavam da nuvem ao recarregar.
   REF.remove().catch(e=>console.error('Erro ao limpar nuvem:',e));
