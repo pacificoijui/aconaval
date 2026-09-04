@@ -1468,6 +1468,47 @@ function abatimentoDoMes(vid, mes, ano){
     .reduce((s, l) => s + (numBR(l.val) || 0), 0);
 }
 
+/* Juro lançado menos pago ATÉ o fim de um mês — a foto do que estava em aberto
+   naquele momento, e não a de hoje. */
+function jurosEmAbertoAte(vid, mes, ano){
+  if (MS.indexOf(mes) < 0 || !ano) return jurosEmAberto(vid);
+  const lim = ord(ck(mes, ano));
+  const ate = lancDiv(vid).filter(l => MS.indexOf(l.mes) >= 0 && ord(ck(l.mes, l.ano)) <= lim);
+  const lancado = ate.filter(x => x.tipo === 'juros').reduce((s, x) => s + (numBR(x.val) || 0), 0);
+  const pago    = ate.filter(x => x.tipo === 'pagJuros').reduce((s, x) => s + (numBR(x.val) || 0), 0);
+  return parseFloat((lancado - pago).toFixed(2));
+}
+
+/* Saldo devedor no FIM de cada mês, do primeiro ao mês atual. É isto que
+   permite olhar meses passados e ver a dívida diminuindo.
+
+   Nada é congelado no banco: o valor de cada mês é recalculado a partir dos
+   próprios lançamentos. Se você corrigir um abatimento antigo, a linha daquele
+   mês e todas as seguintes se acertam sozinhas — um número gravado ficaria
+   mentindo para sempre. */
+function historicoDivida(vid){
+  const d = divDe(vid);
+  if (!d || MS.indexOf(d.inicioMes) < 0 || !d.inicioAno) return [];
+  const hoje = new Date();
+  const ordHoje = ord(ck(MS[hoje.getMonth()], hoje.getFullYear()));
+  const linhas = [];
+  let m = d.inicioMes, a = parseInt(d.inicioAno), guarda = 0;
+  const ant = mesAnterior(m, a);
+  let abertura = capitalAte(vid, ant.mes, ant.ano);
+  while (ord(ck(m, a)) <= ordHoje && guarda++ < 240) {
+    const doMes = lancDiv(vid).filter(l => l.mes === m && l.ano === a);
+    const soma = t => doMes.filter(l => l.tipo === t).reduce((s, l) => s + (numBR(l.val) || 0), 0);
+    const abat = soma('abatimento'), acres = soma('acrescimo');
+    const fechamento = parseFloat(Math.max(0, abertura + acres - abat).toFixed(2));
+    linhas.push({ mes: m, ano: a, abertura: abertura, juros: soma('juros'), pagos: soma('pagJuros'),
+                  abat: abat, acres: acres, fechamento: fechamento,
+                  emAberto: jurosEmAbertoAte(vid, m, a) });
+    abertura = fechamento;
+    const nx = proximoMes(m, a); m = nx.mes; a = nx.ano;
+  }
+  return linhas;
+}
+
 /* Lança o juro dos meses cujo quinto dia útil já passou e que ainda não têm
    lançamento. É idempotente (um por mês) e congela a BASE usada no cálculo,
    para o valor não mudar depois se você lançar um abatimento retroativo. */
@@ -2520,6 +2561,14 @@ function renderF(){
     const a=sel.value;
     const ks=[];
     ps.forEach(p=>{const c=ck(p.mes,p.ano);if(ks.indexOf(c)<0)ks.push(c);});
+    // Meses de dívida também entram: um vendedor pode ter dívida num mês sem
+    // venda nenhuma, e sem isso esse mês não aparecia para ser escolhido.
+    Object.keys(dividas||{}).forEach(vid=>{
+      lancDiv(vid).forEach(l=>{
+        if(MS.indexOf(l.mes)<0||!l.ano)return;
+        const c=ck(l.mes,l.ano);if(ks.indexOf(c)<0)ks.push(c);
+      });
+    });
     ks.sort((x,y)=>ord(y)-ord(x));
     let h='<option value="">Todos os meses</option>';
     ks.forEach(c=>{const p=c.split('_');h+='<option value="'+c+'">'+p[0]+' '+p[1]+'</option>';});
@@ -2877,25 +2926,47 @@ function boxDivida(v, f){
     return h;
   }
 
-  const capital  = capitalHoje(vid);
-  const aberto   = jurosEmAberto(vid);
   const taxa     = taxaDiv(vid);
   const hoje     = new Date();
   const mesRef   = f ? f.split('_')[0] : MS[hoje.getMonth()];
   const anoRef   = f ? parseInt(f.split('_')[1]) : hoje.getFullYear();
+  // Com um mês escolhido, os números são os DAQUELE mês — é o que deixa ver a
+  // dívida diminuindo ao passear pelos meses passados. Sem filtro, é hoje.
+  const capital  = f ? capitalAte(vid, mesRef, anoRef) : capitalHoje(vid);
+  const aberto   = f ? jurosEmAbertoAte(vid, mesRef, anoRef) : jurosEmAberto(vid);
+  const capHoje  = capitalHoje(vid);
   const jm       = jurosDoMes(vid, mesRef, anoRef);
   const pagoMes  = jurosPagoDoMes(vid, mesRef, anoRef);
   const abatMes  = abatimentoDoMes(vid, mesRef, anoRef);
   const proxData = dataJurosDoMes(mesRef, anoRef);
+  const antRef   = mesAnterior(mesRef, anoRef);
+  const abertura = capitalAte(vid, antRef.mes, antRef.ano);
 
   h += '<div style="background:#FFF7F7;border:1px solid #F3D7D7;border-radius:10px;padding:14px 16px;margin-bottom:8px">';
 
   // Números principais
   h += '<div class="row" style="gap:8px;margin-bottom:12px">';
-  h += '<div class="metric" style="border-left:3px solid #A32D2D;background:#fff"><div class="val" style="color:#A32D2D">'+fmt(capital)+'</div><div class="lbl">Saldo devedor (capital)</div></div>';
+  h += '<div class="metric" style="border-left:3px solid #A32D2D;background:#fff"><div class="val" style="color:#A32D2D">'+fmt(capital)+'</div><div class="lbl">'
+    +(f ? 'Devia no fim de '+mesRef.substring(0,3)+' '+anoRef : 'Saldo devedor (capital)')+'</div></div>';
   h += '<div class="metric" style="background:#fff"><div class="val">'+taxa.toLocaleString('pt-BR',{maximumFractionDigits:2})+'%</div><div class="lbl">Juro no '+DIVIDA_DIA_UTIL+'º dia útil</div></div>';
   h += '<div class="metric" style="background:#fff'+(aberto>0.005?';border-left:3px solid #854F0B':'')+'"><div class="val"'+(aberto>0.005?' style="color:#854F0B"':'')+'>'+fmt(aberto)+'</div><div class="lbl">Juro em aberto</div></div>';
   h += '</div>';
+
+  // Como o mês mexeu na dívida: abriu com tanto, fechou com tanto
+  if (f) {
+    const variacao = capital - abertura;
+    h += '<div style="background:#fff;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;color:#666;line-height:1.9">'
+      + 'Começou '+mesRef+' devendo <strong>'+fmt(abertura)+'</strong>'
+      + (abatMes>0.005 ? ' · abateu <strong style="color:#185FA5">'+fmt(abatMes)+'</strong>' : '')
+      + ' · terminou devendo <strong style="color:#A32D2D">'+fmt(capital)+'</strong>'
+      + (Math.abs(variacao)>0.005
+          ? ' <span style="color:'+(variacao<0?'#3B6D11':'#854F0B')+';font-weight:700">('+(variacao<0?'−':'+')+fmt(Math.abs(variacao)).replace('R$ ','R$ ')+')</span>'
+          : ' <span style="color:#999">(sem mudança)</span>')
+      + (Math.abs(capHoje-capital)>0.005
+          ? '<br><span style="color:#999;font-size:11px">Hoje a dívida está em '+fmt(capHoje)+'.</span>'
+          : '')
+      + '</div>';
+  }
 
   // Juro do mês em foco
   h += '<div style="background:#fff;border-radius:8px;padding:12px 14px;margin-bottom:10px">';
@@ -2943,6 +3014,7 @@ function boxDivida(v, f){
      + '<button class="btn" style="font-size:12px" onclick="registrarAcrescimoDivida('+vid+')">+ Lançar</button>'
      + '</div>';
 
+  h += evolucaoDivida(vid, f);
   h += extratoDivida(vid, f);
   h += '<details style="margin-top:10px"><summary style="font-size:11px;color:#888;cursor:pointer">⚙️ Configuração da dívida</summary>'
      + '<div style="margin-top:8px">' + formCfgDivida(vid, d) + '</div></details>';
@@ -2971,6 +3043,43 @@ function formCfgDivida(vid, d){
   h += '<p style="font-size:11px;color:#aaa;margin-top:6px">O juro é lançado sozinho todo '+DIVIDA_DIA_UTIL
      + 'º dia útil (sábado e domingo não contam) sobre o saldo devedor. Juro não pago fica em aberto e '
      + '<strong>não</strong> vira juro sobre juro.</p>';
+  return h;
+}
+
+/* Evolução mês a mês: quanto devia no começo, o que entrou/saiu e quanto
+   ficou no fim. É a visão que mostra a dívida encolhendo. */
+function evolucaoDivida(vid, f){
+  const linhas = historicoDivida(vid);
+  if (!linhas.length) return '';
+  const primeiro = linhas[0].abertura;
+  const ultimo = linhas[linhas.length - 1].fechamento;
+  let h = '<div class="section-lbl" style="margin-top:14px">Evolução da dívida';
+  if (primeiro > 0.005) {
+    const caiu = primeiro - ultimo;
+    h += ' <span style="font-weight:400;text-transform:none;letter-spacing:0;color:'+(caiu>0.005?'#3B6D11':'#888')+'">— '
+      + (caiu > 0.005
+          ? 'já caiu ' + fmt(caiu) + ' (' + (caiu / primeiro * 100).toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%)'
+          : 'ainda sem abatimento')
+      + '</span>';
+  }
+  h += '</div>';
+  h += '<div class="table-wrap"><table><thead><tr><th>Mês</th>'
+    + '<th style="text-align:right">Devia no início</th>'
+    + '<th style="text-align:right">Abateu</th>'
+    + '<th style="text-align:right">Aumentou</th>'
+    + '<th style="text-align:right">Juro do mês</th>'
+    + '<th style="text-align:right">Ficou devendo</th></tr></thead><tbody>';
+  linhas.slice().reverse().forEach(l => {
+    const destaque = f && ck(l.mes, l.ano) === f;
+    h += '<tr'+(destaque?' style="background:#FFFBEA"':'')+'>'
+      + '<td><span class="badge-m">'+l.mes.substring(0,3)+' '+l.ano+'</span></td>'
+      + '<td style="text-align:right;color:#888">'+fmt(l.abertura)+'</td>'
+      + '<td style="text-align:right;color:'+(l.abat>0.005?'#185FA5;font-weight:600':'#ccc')+'">'+(l.abat>0.005?'− '+fmt(l.abat):'—')+'</td>'
+      + '<td style="text-align:right;color:'+(l.acres>0.005?'#854F0B;font-weight:600':'#ccc')+'">'+(l.acres>0.005?'+ '+fmt(l.acres):'—')+'</td>'
+      + '<td style="text-align:right;color:'+(l.juros>0.005?'#A32D2D':'#ccc')+'">'+(l.juros>0.005?fmt(l.juros)+(l.pagos>0.005?' <span style="color:#3B6D11;font-size:10px">pago</span>':''):'—')+'</td>'
+      + '<td style="text-align:right;font-weight:700;color:#A32D2D">'+fmt(l.fechamento)+'</td></tr>';
+  });
+  h += '</tbody></table></div>';
   return h;
 }
 

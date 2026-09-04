@@ -94,6 +94,16 @@ select{font-size:14px;padding:8px 10px;border:1px solid #d0d4d8;border-radius:8p
   padding:7px 0;border-top:1px solid #f4f6f8}
 .divida-card .dv-linha strong{white-space:nowrap}
 .divida-card .dv-nota{font-size:11px;color:#999;line-height:1.6;margin-top:10px}
+.divida-card .dv-hist-tit{font-size:11px;font-weight:700;color:#A32D2D;text-transform:uppercase;letter-spacing:.3px;margin:14px 0 6px;padding-top:10px;border-top:1px solid #f4f6f8}
+.divida-card .dv-hist{display:flex;flex-direction:column;gap:4px}
+.divida-card .dv-hist-linha{display:flex;align-items:center;gap:8px;font-size:11.5px}
+.divida-card .dv-hist-linha.atual{font-weight:700}
+.divida-card .dv-hist-mes{min-width:46px;color:#888;text-transform:capitalize}
+.divida-card .dv-hist-linha.atual .dv-hist-mes{color:#A32D2D}
+.divida-card .dv-hist-barra{flex:1;height:7px;background:#f4f6f8;border-radius:4px;overflow:hidden}
+.divida-card .dv-hist-barra i{display:block;height:100%;background:#E0A0A0;border-radius:4px}
+.divida-card .dv-hist-linha.atual .dv-hist-barra i{background:#A32D2D}
+.divida-card .dv-hist-val{min-width:86px;text-align:right;color:#555;white-space:nowrap}
 .sec-titulo{font-size:12px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin:16px 0 10px;padding-top:14px;border-top:1px solid #f0f2f5}
 .sec-titulo.roxo{color:#534AB7}
 .sec-titulo.laranja{color:#854F0B}
@@ -265,6 +275,49 @@ function capitalHoje(){
     if(l.tipo==='acrescimo')  c+=numBR(l.val)||0;
   });
   return parseFloat(Math.max(0,c).toFixed(2));
+}
+/* Saldo devedor no FIM de um mês — é o que deixa o vendedor olhar meses
+   passados e ver a dívida diminuindo. Sai dos próprios lançamentos, então
+   continua certo se o escritório corrigir algo antigo. */
+function capitalAte(mes,ano){
+  if(!divida) return 0;
+  const lim=ord(ck(mes,ano));
+  let c=numBR(divida.capitalInicial)||0;
+  lancDiv().forEach(l=>{
+    if(!l||MS.indexOf(l.mes)<0) return;
+    if(ord(ck(l.mes,l.ano))>lim) return;
+    if(l.tipo==='abatimento') c-=numBR(l.val)||0;
+    if(l.tipo==='acrescimo')  c+=numBR(l.val)||0;
+  });
+  return parseFloat(Math.max(0,c).toFixed(2));
+}
+function jurosEmAbertoAte(mes,ano){
+  if(MS.indexOf(mes)<0||!ano) return jurosEmAberto();
+  const lim=ord(ck(mes,ano));
+  const ate=lancDiv().filter(l=>MS.indexOf(l.mes)>=0&&ord(ck(l.mes,l.ano))<=lim);
+  const lancado=ate.filter(x=>x.tipo==='juros').reduce((s,x)=>s+(numBR(x.val)||0),0);
+  const pago=ate.filter(x=>x.tipo==='pagJuros').reduce((s,x)=>s+(numBR(x.val)||0),0);
+  return parseFloat((lancado-pago).toFixed(2));
+}
+/* Mês a mês, do primeiro ao atual: quanto devia no começo e no fim. */
+function historicoDivida(){
+  if(!divida||MS.indexOf(divida.inicioMes)<0||!divida.inicioAno) return [];
+  const hoje=new Date();
+  const ordHoje=ord(ck(MS[hoje.getMonth()],hoje.getFullYear()));
+  const linhas=[];
+  let m=divida.inicioMes,a=parseInt(divida.inicioAno),guarda=0;
+  const ant=mesAnterior(m,a);
+  let abertura=capitalAte(ant.mes,ant.ano);
+  while(ord(ck(m,a))<=ordHoje&&guarda++<240){
+    const doMes=lancDiv().filter(l=>l.mes===m&&l.ano===a);
+    const soma=t=>doMes.filter(l=>l.tipo===t).reduce((s,l)=>s+(numBR(l.val)||0),0);
+    const abat=soma('abatimento'),acres=soma('acrescimo');
+    const fechamento=parseFloat(Math.max(0,abertura+acres-abat).toFixed(2));
+    linhas.push({mes:m,ano:a,abertura,abat,acres,juros:soma('juros'),fechamento});
+    abertura=fechamento;
+    const nx=proximoMes(m,a);m=nx.mes;a=nx.ano;
+  }
+  return linhas;
 }
 function jurosEmAberto(){
   const l=lancDiv();
@@ -520,6 +573,9 @@ if(!nomeUrl){
     bonusLista.forEach(b=>{const c=ck(b.mes,b.ano);if(ks.indexOf(c)<0)ks.push(c);});
     estornos.forEach(e=>{const c=ck(e.mes,e.ano);if(ks.indexOf(c)<0)ks.push(c);});
     transfs.forEach(t=>{const c=ck(t.dMes,t.dAno);if(MS.indexOf(t.dMes)>=0&&ks.indexOf(c)<0)ks.push(c);});
+    // Meses da dívida também entram: pode haver mês com dívida e sem venda,
+    // e sem isso ele não aparecia na lista para ser consultado.
+    if(temDivida())lancDiv().forEach(l=>{const c=ck(l.mes,l.ano);if(MS.indexOf(l.mes)>=0&&ks.indexOf(c)<0)ks.push(c);});
     ks.sort((x,y)=>ord(y)-ord(x));
     const sel=document.getElementById('f-mes');
     ks.forEach(c=>{const p=c.split('_');const o=document.createElement('option');o.value=c;o.textContent=p[0]+' '+p[1];sel.appendChild(o);});
@@ -551,19 +607,32 @@ function renderDividaCard(f, fMes, fAno){
   if (!wrap) return;
   if (!temDivida()) { wrap.innerHTML = ''; return; }
 
-  const capital = capitalHoje();
-  const aberto  = jurosEmAberto();
   const taxa    = taxaDiv();
   const hoje    = new Date();
   const mesRef  = f ? fMes : MS[hoje.getMonth()];
   const anoRef  = f ? fAno : hoje.getFullYear();
+  // Com um mês escolhido, mostra como a dívida estava NO FIM daquele mês —
+  // assim dá para passear pelos meses e ver ela diminuindo.
+  const capital = f ? capitalAte(mesRef, anoRef) : capitalHoje();
+  const aberto  = f ? jurosEmAbertoAte(mesRef, anoRef) : jurosEmAberto();
+  const capHoje = capitalHoje();
+  const antRef  = mesAnterior(mesRef, anoRef);
+  const abertura= capitalAte(antRef.mes, antRef.ano);
   const jm      = jurosDoMes(mesRef, anoRef);
   const abat    = abatimentoDoMes(mesRef, anoRef);
   const venc    = dataJurosDoMes(mesRef, anoRef);
 
   let h = '<div class="divida-card">';
   h += '<div class="dv-tit">💳 Sua dívida</div>';
-  h += '<div class="dv-valor">' + fmt(capital) + '</div><div class="dv-sub">Saldo devedor</div>';
+  h += '<div class="dv-valor">' + fmt(capital) + '</div>'
+     + '<div class="dv-sub">' + (f ? 'Devia no fim de ' + mesRef + ' ' + anoRef : 'Saldo devedor') + '</div>';
+  if (f && Math.abs(abertura - capital) > 0.005) {
+    const caiu = abertura - capital;
+    h += '<div class="dv-linha" style="color:' + (caiu > 0 ? '#1d6b4f' : '#854F0B') + '">'
+       + '<span>' + (caiu > 0 ? 'Caiu em ' + mesRef : 'Aumentou em ' + mesRef)
+       + ' (começou em ' + fmt(abertura) + ')</span>'
+       + '<strong>' + (caiu > 0 ? '− ' : '+ ') + fmt(Math.abs(caiu)) + '</strong></div>';
+  }
 
   if (jm) {
     h += '<div class="dv-linha"><span>Juro de ' + mesRef + ' ' + anoRef + ' ('
@@ -581,6 +650,28 @@ function renderDividaCard(f, fMes, fAno){
     h += '<div class="dv-linha" style="color:#185FA5"><span>Da comissão de ' + mesRef + ' ' + anoRef
        + ' foi para a dívida</span><strong>− ' + fmt(abat) + '</strong></div>';
   }
+  if (f && Math.abs(capHoje - capital) > 0.005) {
+    h += '<div class="dv-linha" style="color:#666"><span>Hoje a dívida está em</span><strong>' + fmt(capHoje) + '</strong></div>';
+  }
+
+  // Mês a mês, para ele acompanhar a dívida caindo
+  const hist = historicoDivida();
+  if (hist.length > 1) {
+    const primeiro = hist[0].abertura, ultimo = hist[hist.length - 1].fechamento;
+    const caiu = primeiro - ultimo;
+    h += '<div class="dv-hist-tit">Mês a mês'
+       + (caiu > 0.005 ? ' — já caiu ' + fmt(caiu) : '') + '</div>';
+    h += '<div class="dv-hist">';
+    hist.slice().reverse().slice(0, 12).forEach(l => {
+      const largura = primeiro > 0 ? Math.max(2, Math.min(100, l.fechamento / primeiro * 100)) : 0;
+      h += '<div class="dv-hist-linha' + (f && ck(l.mes, l.ano) === f ? ' atual' : '') + '">'
+         + '<span class="dv-hist-mes">' + l.mes.substring(0,3) + '/' + String(l.ano).slice(-2) + '</span>'
+         + '<span class="dv-hist-barra"><i style="width:' + largura.toFixed(1) + '%"></i></span>'
+         + '<span class="dv-hist-val">' + fmt(l.fechamento) + '</span></div>';
+    });
+    h += '</div>';
+  }
+
   h += '<div class="dv-nota">O juro é lançado todo <strong>' + 5 + 'º dia útil</strong> sobre o saldo devedor '
      + 'e não entra na dívida — não vira juro sobre juro. O saldo devedor só diminui com o que for abatido da comissão.</div>';
   h += '</div>';
