@@ -691,6 +691,16 @@ async function carregarFotosProjetoDir(prodId) {
 // (fotosprojeto/fotosprojetoDir); posição vazia = usa a foto original do
 // produto naquela página (ver montagem em itemsFotosProjetoAtual abaixo).
 const itemFotosProjetoCustom = {};
+// Foto do produto AVULSO (item que só existe neste pedido). Sai do documento
+// antes de gravar, por causa do limite de 1MB, então vem do documento próprio.
+const itemFotosAvulso = {};
+async function carregarFotoItemAvulso(itemId) {
+  if (!itemId) return '';
+  try {
+    const snap = await db.collection('acn_item_fotos').doc(String(itemId)).get();
+    return snap.exists ? (snap.data().foto || '') : '';
+  } catch (e) { return ''; }
+}
 async function carregarFotosProjetoItem(itemId) {
   if (!itemId) return [];
   try {
@@ -751,6 +761,11 @@ async function carregarPedido() {
     const itensCustom = (p.items || []).filter(it => it.projetoCustom && it.id);
     const customSnaps = await Promise.all(itensCustom.map(it => carregarFotosProjetoItem(it.id)));
     itensCustom.forEach((it, i) => { itemFotosProjetoCustom[String(it.id)] = customSnaps[i]; });
+
+    // Fotos dos produtos avulsos deste pedido
+    const itensAvulsos = (p.items || []).filter(it => it.avulso && it.id);
+    const avulsoSnaps = await Promise.all(itensAvulsos.map(it => carregarFotoItemAvulso(it.id)));
+    itensAvulsos.forEach((it, i) => { itemFotosAvulso[String(it.id)] = avulsoSnaps[i]; });
 
     pararRelogioCarga();
     renderPedido(p);
@@ -854,7 +869,7 @@ function renderPedido(p) {
     // Miniatura respeita o SENTIDO: Esquerda usa a foto própria do lado esquerdo (se houver)
     const fotoSrc = (item.lado === 'Esquerda' && item.prodId && prodFotosDir[String(item.prodId)])
       ? prodFotosDir[String(item.prodId)]
-      : (item.foto || (item.prodId ? prodFotos[String(item.prodId)] : '') || '');
+      : (item.foto || itemFotosAvulso[String(item.id)] || (item.prodId ? prodFotos[String(item.prodId)] : '') || '');
     return `<div class="item-card">
       <div class="item-row">
         ${fotoSrc ? `<img src="${fotoSrc}" class="item-foto"/>` : `<div class="item-foto-ph">📦</div>`}

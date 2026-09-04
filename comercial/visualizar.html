@@ -606,7 +606,7 @@ function buildItemHtml(item, idx) {
   if (item.lado === 'Esquerda' && item.prodId && prodFotosDir[String(item.prodId)]) {
     fotoSrc = prodFotosDir[String(item.prodId)];
   } else {
-    fotoSrc = item.foto || (item.prodId ? prodFotos[String(item.prodId)] : '') || '';
+    fotoSrc = item.foto || itemFotosAvulso[String(item.id)] || (item.prodId ? prodFotos[String(item.prodId)] : '') || '';
   }
   var fotoHtml = fotoSrc
     ? '<img src="' + fotoSrc + '" class="item-foto"/>'
@@ -986,6 +986,17 @@ async function carregarFotosProjetoDir(prodId) {
 // (fotosprojeto/fotosprojetoDir); posição vazia = usa a foto original do
 // produto naquela página (ver montagem em itemsFotosProjetoAtual abaixo).
 var itemFotosProjetoCustom = {};
+// Foto do produto AVULSO (item que só existe neste documento). Ela é tirada do
+// documento antes de gravar, por causa do limite de 1MB, então vem do
+// documento próprio dela.
+var itemFotosAvulso = {};
+async function carregarFotoItemAvulso(itemId) {
+  if (!itemId) return '';
+  try {
+    var snap = await db.collection('acn_item_fotos').doc(String(itemId)).get();
+    return snap.exists ? (snap.data().foto || '') : '';
+  } catch (e) { return ''; }
+}
 async function carregarFotosProjetoItem(itemId) {
   if (!itemId) return [];
   try {
@@ -1050,6 +1061,11 @@ async function carregarFotosProjetoItem(itemId) {
     var itensCustom = (orc.items || []).filter(function(it){ return it.projetoCustom && it.id; });
     var customSnaps = await Promise.all(itensCustom.map(function(it){ return carregarFotosProjetoItem(it.id); }));
     itensCustom.forEach(function(it, i) { itemFotosProjetoCustom[String(it.id)] = customSnaps[i]; });
+
+    // Fotos dos produtos avulsos deste orçamento
+    var itensAvulsos = (orc.items || []).filter(function(it){ return it.avulso && it.id; });
+    var avulsoSnaps = await Promise.all(itensAvulsos.map(function(it){ return carregarFotoItemAvulso(it.id); }));
+    itensAvulsos.forEach(function(it, i) { itemFotosAvulso[String(it.id)] = avulsoSnaps[i]; });
 
     renderOrcamento(orc);
   } catch(e) {

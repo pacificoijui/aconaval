@@ -4179,6 +4179,32 @@ function ladoChipsHtml(item, fn, idKey) {
 // página pode ser substituída (ou não) independente das outras — dá pra trocar só a
 // página 2 de um kit com 3 páginas, por exemplo, sem mexer nas demais. Página sem
 // substituição continua mostrando a foto original do catálogo.
+/* Bloco do produto avulso: a marcação e, quando ligada, a foto própria.
+   A linha da foto leva a classe .proj-page-row de propósito — é ela que o
+   habilitarDropProjetoItens() procura, então arrastar a foto para cá já
+   funciona sem código novo. */
+function avulsoHtml(item, idKey, fnToggle, fnFoto, fnRemoveFoto) {
+  const inputId = 'avulsofoto-' + fnToggle + '-' + idKey;
+  const linha = `
+      <div class="proj-page-row" style="display:flex;align-items:center;gap:8px;padding:4px 6px" title="Também dá pra arrastar uma foto direto pra cá">
+        <span style="font-size:11px;font-weight:700;color:#1d6b4f;min-width:58px">Foto</span>
+        ${item.foto ? `<img src="${item.foto}" style="width:32px;height:32px;object-fit:contain;border:1px solid #ddd;border-radius:4px;background:#fff"/>` : ''}
+        <input type="file" accept="image/*" id="${inputId}" style="display:none" onchange="${fnFoto}(${idKey}, this)"/>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('${inputId}').click()" style="padding:2px 9px;font-size:11px">📷 ${item.foto ? 'Trocar' : 'Escolher foto'}</button>
+        ${item.foto
+          ? `<button type="button" class="btn btn-ghost btn-sm" onclick="${fnRemoveFoto}(${idKey})" style="padding:2px 8px;font-size:11px;color:#c0392b">✕ tirar</button>`
+          : `<span style="font-size:10px;color:#999">ou arraste a foto aqui — opcional</span>`}
+      </div>`;
+  return `
+    <div style="grid-column:1 / -1;display:flex;flex-direction:column;gap:2px;padding:6px 10px;background:${item.avulso?'#EEF9F3':'#fafbfc'};border:1px dashed ${item.avulso?'#7BC0A0':'#e0e4e8'};border-radius:6px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:${item.avulso?'#1d6b4f':'#666'};cursor:pointer">
+        <input type="checkbox" ${item.avulso?'checked':''} onchange="${fnToggle}(${idKey})"/>
+        🧩 Produto avulso — vale só neste documento (ex.: madeira extra, portinha extra)
+      </label>
+      ${item.avulso ? `<div style="font-size:10.5px;color:#1d6b4f;padding:0 0 2px 22px">Escreva o nome na Descrição e o preço no Valor. Não entra no catálogo.</div>${linha}` : ''}
+    </div>`;
+}
+
 function projetoCustomHtml(item, idKey, fnToggle, fnFoto, fnRemove) {
   const pr = prodDoItem(item);
   const originais = (item.lado === 'Esquerda' && pr && Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length)
@@ -4251,6 +4277,68 @@ function habilitarDropProjetoItens(containerId) {
   });
 }
 
+/* ── AÇÕES DO PRODUTO AVULSO ──
+   O item avulso guarda a foto no próprio documento dele (acn_item_fotos), e não
+   dentro do orçamento — por isso a gravação acontece aqui, na hora de escolher
+   a foto, e não no save() geral. */
+function toggleAvulso(id) {
+  const item = items.find(i => i.id == id); if (!item) return;
+  item.avulso = !item.avulso;
+  if (!item.avulso) limparAvulso(item);
+  renderItems(); updatePreview();
+}
+function toggleAvulsoPd(idx) {
+  const item = itemsPedido[idx]; if (!item) return;
+  item.avulso = !item.avulso;
+  if (!item.avulso) limparAvulso(item);
+  renderItemsPedido(); updatePreviewPd();
+}
+/* Desmarcar joga fora foto e projeto — eles só faziam sentido enquanto o item
+   era avulso, e deixá-los para trás faria uma foto órfã aparecer no documento. */
+function limparAvulso(item) {
+  item.foto = '';
+  salvarFotoItemAvulso(item.id, '').catch(()=>{});
+  if (item.projetoCustom) {
+    item.projetoCustom = false;
+    item.fotosProjetoCustom = [];
+    salvarFotosProjetoItem(item.id, []).catch(()=>{});
+  }
+}
+async function lerFotoAvulso(input) {
+  const file = input.files && input.files[0]; if (!file) return null;
+  if (file.size > 5 * 1024 * 1024) { alert('Foto muito grande. Use uma imagem até 5MB.'); input.value = ''; return null; }
+  const reader = new FileReader();
+  const base64 = await new Promise(res => { reader.onload = ev => res(ev.target.result); reader.readAsDataURL(file); });
+  input.value = '';
+  return await comprimirFoto(base64);
+}
+async function onAvulsoFotoChange(id, input) {
+  const foto = await lerFotoAvulso(input); if (foto == null) return;
+  const item = items.find(i => i.id == id); if (!item) return;
+  item.foto = foto;
+  renderItems(); updatePreview();
+  salvarFotoItemAvulso(item.id, foto).catch(e => console.error('Erro ao salvar foto do item avulso:', e));
+}
+async function onAvulsoFotoChangePd(idx, input) {
+  const foto = await lerFotoAvulso(input); if (foto == null) return;
+  const item = itemsPedido[idx]; if (!item) return;
+  item.foto = foto;
+  renderItemsPedido(); updatePreviewPd();
+  salvarFotoItemAvulso(item.id, foto).catch(e => console.error('Erro ao salvar foto do item avulso:', e));
+}
+function removeAvulsoFoto(id) {
+  const item = items.find(i => i.id == id); if (!item) return;
+  item.foto = '';
+  renderItems(); updatePreview();
+  salvarFotoItemAvulso(item.id, '').catch(()=>{});
+}
+function removeAvulsoFotoPd(idx) {
+  const item = itemsPedido[idx]; if (!item) return;
+  item.foto = '';
+  renderItemsPedido(); updatePreviewPd();
+  salvarFotoItemAvulso(item.id, '').catch(()=>{});
+}
+
 function addItem() { items.push({ id: Date.now(), prodId: '', desc: '', preco: 0 }); renderItems(); }
 function removeItem(id) {
   if (items.length <= 1) return;
@@ -4270,8 +4358,8 @@ function renderItems() {
     <div class="item-row">
       <div>
         <label class="form-label">Código</label>
-        <input class="form-input" id="cod-${item.id}" placeholder="Cód..." autocomplete="off"
-          value="${escHtml(item.codigoInput||'')}"
+        <input class="form-input" id="cod-${item.id}" placeholder="${item.avulso?'—':'Cód...'}" autocomplete="off"
+          ${item.avulso?'disabled':''} value="${escHtml(item.codigoInput||'')}"
           oninput="onCodInputOrc(${item.id},this.value)"
           onblur="buscarPorCodigo(${item.id})"
           onkeydown="if(event.key==='Enter'){event.preventDefault();buscarPorCodigo(${item.id});}"
@@ -4280,8 +4368,8 @@ function renderItems() {
       <div>
         <label class="form-label">Buscar Produto</label>
         <div class="ac-wrap">
-          <input class="form-input" id="search-${item.id}" placeholder="Digite o nome do produto..." autocomplete="off"
-            value="${escHtml(item.searchText||'')}"
+          <input class="form-input" id="search-${item.id}" placeholder="${item.avulso?'produto avulso — use a Descrição':'Digite o nome do produto...'}" autocomplete="off"
+            ${item.avulso?'disabled':''} value="${escHtml(item.searchText||'')}"
             oninput="onSearchInput(${item.id},this.value)"
             onkeydown="onSearchKey(event,${item.id})"
             onfocus="openDropdown(${item.id})"/>
@@ -4301,7 +4389,8 @@ function renderItems() {
         <button class="btn btn-danger btn-sm" onclick="removeItem(${item.id})" ${items.length<=1?'disabled':''} style="padding:6px 9px">✕</button>
       </div>
       ${itemPrecisaLado(item) ? ladoChipsHtml(item, 'setLadoOrc', item.id) : ''}
-      ${item.prodId ? projetoCustomHtml(item, item.id, 'toggleProjetoCustom', 'onProjetoCustomFotoChange', 'removeProjetoCustomFoto') : ''}
+      ${!item.prodId ? avulsoHtml(item, item.id, 'toggleAvulso', 'onAvulsoFotoChange', 'removeAvulsoFoto') : ''}
+      ${(item.prodId || item.avulso) ? projetoCustomHtml(item, item.id, 'toggleProjetoCustom', 'onProjetoCustomFotoChange', 'removeProjetoCustomFoto') : ''}
     </div>`).join('');
   // Dimensiona já na primeira renderização (produto selecionado, edição de
   // orçamento existente) — sem isso só crescia depois do usuário digitar.
@@ -4378,6 +4467,8 @@ function selectProd(itemId, prodId) {
   item.desc = prod.nome + (prod.dim ? '\nDimensões: '+prod.dim : '') + (prod.obs ? '\n'+prod.obs : '');
   item.preco = prod.preco;
   item.foto = prod.foto || '';
+  // Veio do catálogo: não é mais avulso.
+  if (item.avulso) { item.avulso = false; salvarFotoItemAvulso(item.id, '').catch(()=>{}); }
   // Produto espelhável: zera o sentido — a escolha é obrigatória antes de gerar
   item.lado = null;
   // Embutir componentes do conjunto direto no item
@@ -4517,13 +4608,20 @@ function editarOrcamento(id) {
   const btnEd = document.getElementById('btn-gerar-orc');
   if (btnEd) { btnEd.textContent = '💾 Salvar Alterações'; btnEd.style.background = '#185FA5'; }
 
-  // As fotos de projeto específicas chegam depois, sem segurar a tela.
+  // As fotos de projeto específicas e as dos itens avulsos chegam depois, sem
+  // segurar a tela.
   const comCustom = items.filter(i => i.projetoCustom);
-  if (comCustom.length) {
+  const comAvulso = items.filter(i => i.avulso && !i.foto);
+  if (comCustom.length || comAvulso.length) {
     const idDaEdicao = id;
-    Promise.all(comCustom.map(async it => {
-      it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
-    })).then(() => {
+    Promise.all([
+      ...comCustom.map(async it => {
+        it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
+      }),
+      ...comAvulso.map(async it => {
+        it.foto = await carregarFotoItemAvulso(it.id) || '';
+      })
+    ]).then(() => {
       // Se o usuário já saiu desta edição nesse meio tempo, não redesenha por cima
       if (orcamentoEditandoId === idDaEdicao) renderItems();
     }).catch(() => {});
@@ -4744,6 +4842,25 @@ function fotosProjetoDoItemLado(item) {
 // fotos = array index-alinhado com as páginas do projeto; posição vazia/ausente = usa a
 // foto original do produto naquela página. Formato antigo do doc ({foto: string}) trocava
 // TODAS as páginas por uma só; ao ler, ela vira a substituta da página 1 (carregarFotosProjetoItem).
+// ── PRODUTO AVULSO (só existe neste orçamento/pedido) ───────────────────
+// "Madeira extra", "portinha extra": um item com nome, valor, foto e projeto
+// próprios, que NÃO entra no catálogo. A foto fica em documento separado
+// (acn_item_fotos/{itemId}) pelo mesmo motivo das fotos de produto e de
+// projeto: uma foto sozinha já passa de 100KB e o documento do orçamento
+// estoura o limite de 1MB do Firestore.
+async function salvarFotoItemAvulso(itemId, foto) {
+  if (!db || !itemId) return;
+  if (foto) await db.collection('acn_item_fotos').doc(String(itemId)).set({ foto });
+  else await db.collection('acn_item_fotos').doc(String(itemId)).delete();
+}
+async function carregarFotoItemAvulso(itemId) {
+  if (!db || !itemId) return '';
+  try {
+    const snap = await db.collection('acn_item_fotos').doc(String(itemId)).get();
+    return snap.exists ? (snap.data().foto || '') : '';
+  } catch(e) { return ''; }
+}
+
 async function salvarFotosProjetoItem(itemId, fotos) {
   if (!db || !itemId) return;
   const limpo = (fotos || []).map(f => f || '');
@@ -4769,7 +4886,14 @@ async function carregarFotosProjetoItem(itemId) {
 async function prepararLadosDoc(doc) {
   const itensEsq = (doc && doc.items ? doc.items : []).filter(i => i.lado === 'Esquerda' && i.prodId);
   const itensCustom = (doc && doc.items ? doc.items : []).filter(i => i.projetoCustom && !(Array.isArray(i.fotosProjetoCustom) && i.fotosProjetoCustom.length));
+  // A foto do produto avulso é tirada do documento antes de gravar (limite de
+  // 1MB), então precisa voltar do documento próprio dela para aparecer.
+  const itensAvulsos = (doc && doc.items ? doc.items : []).filter(i => i.avulso && !i.foto);
   await Promise.all([
+    ...itensAvulsos.map(async it => {
+      try { it.foto = await carregarFotoItemAvulso(it.id) || ''; }
+      catch(e) { it.foto = ''; }
+    }),
     ...itensEsq.map(async it => {
       const pr = prodDoItem(it);
       // Bug fix: antes, um array vazio já cacheado (`pr.fotosprojetoDir === []`) era
@@ -5554,9 +5678,15 @@ async function converterEmPedido() {
     if (origemLabel) {
       // Recupera as fotos de projeto específicas de cada item que tiver, pra já
       // sair correto no pedido gerado (acn_item_projetos/{id}).
-      await Promise.all(itemsPedido.filter(i => i.projetoCustom).map(async it => {
-        it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
-      }));
+      await Promise.all([
+        ...itemsPedido.filter(i => i.projetoCustom).map(async it => {
+          it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
+        }),
+        // Idem para a foto do produto avulso (acn_item_fotos/{id}).
+        ...itemsPedido.filter(i => i.avulso && !i.foto).map(async it => {
+          it.foto = await carregarFotoItemAvulso(it.id) || '';
+        })
+      ]);
       renderItemsPedido();
       updatePreviewPd();
       const container = document.getElementById('pd-items-container');
@@ -5714,8 +5844,8 @@ function renderItemsPedido() {
     <div class="item-row">
       <div>
         <label class="form-label">Código</label>
-        <input class="form-input" id="pd-cod-${idx}" placeholder="Cód..." autocomplete="off"
-          value="${escHtml(item.codigoInput||'')}"
+        <input class="form-input" id="pd-cod-${idx}" placeholder="${item.avulso?'—':'Cód...'}" autocomplete="off"
+          ${item.avulso?'disabled':''} value="${escHtml(item.codigoInput||'')}"
           oninput="onCodInputPd(${idx},this.value)"
           onblur="buscarPorCodigoPd(${idx})"
           onkeydown="if(event.key==='Enter'){event.preventDefault();buscarPorCodigoPd(${idx});}"
@@ -5724,8 +5854,8 @@ function renderItemsPedido() {
       <div>
         <label class="form-label">Buscar Produto</label>
         <div class="ac-wrap">
-          <input class="form-input" id="pd-search-${idx}" placeholder="Digite o nome do produto..." autocomplete="off"
-            value="${escHtml(item.searchText||'')}"
+          <input class="form-input" id="pd-search-${idx}" placeholder="${item.avulso?'produto avulso — use a Descrição':'Digite o nome do produto...'}" autocomplete="off"
+            ${item.avulso?'disabled':''} value="${escHtml(item.searchText||'')}"
             oninput="onSearchInputPd(${idx},this.value)"
             onkeydown="onSearchKeyPd(event,${idx})"
             onfocus="openDropdownPd(${idx})"/>
@@ -5745,7 +5875,8 @@ function renderItemsPedido() {
         <button class="btn btn-danger btn-sm" onclick="removeItemPd(${idx})" ${itemsPedido.length<=1?'disabled':''} style="padding:6px 9px">✕</button>
       </div>
       ${itemPrecisaLado(item) ? ladoChipsHtml(item, 'setLadoPd', idx) : ''}
-      ${item.prodId ? projetoCustomHtml(item, idx, 'toggleProjetoCustomPd', 'onProjetoCustomFotoChangePd', 'removeProjetoCustomFotoPd') : ''}
+      ${!item.prodId ? avulsoHtml(item, idx, 'toggleAvulsoPd', 'onAvulsoFotoChangePd', 'removeAvulsoFotoPd') : ''}
+      ${(item.prodId || item.avulso) ? projetoCustomHtml(item, idx, 'toggleProjetoCustomPd', 'onProjetoCustomFotoChangePd', 'removeProjetoCustomFotoPd') : ''}
     </div>`).join('');
   // Dimensiona já na primeira renderização (produto selecionado, edição de
   // pedido existente) — sem isso só crescia depois do usuário digitar.
@@ -6216,9 +6347,15 @@ function editarPedido(id) {
     itemsPedido = JSON.parse(JSON.stringify(p.items || [{id:Date.now(),prodId:'',desc:'',preco:0}]));
     itemsPedido.forEach(item => { if(!item.searchText) item.searchText = nomeDoItem(item); inferirLadoDaDesc(item); });
     // Recupera as fotos de projeto específicas de cada item que tiver (acn_item_projetos/{id})
-    await Promise.all(itemsPedido.filter(i => i.projetoCustom).map(async it => {
-      it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
-    }));
+    await Promise.all([
+      ...itemsPedido.filter(i => i.projetoCustom).map(async it => {
+        it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || [];
+      }),
+      // Idem para a foto do produto avulso (acn_item_fotos/{id}).
+      ...itemsPedido.filter(i => i.avulso && !i.foto).map(async it => {
+        it.foto = await carregarFotoItemAvulso(it.id) || '';
+      })
+    ]);
     renderItemsPedido();
     updatePreviewPd();
     // Muda botão para "Salvar Alterações"
