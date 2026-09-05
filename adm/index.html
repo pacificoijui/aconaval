@@ -78,6 +78,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;color:#555}
 .badge-prod{background:#EEEDFE;color:#534AB7;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
 .badge-meia{background:#f0f2f5;color:#555;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
 .badge-vend{background:#E1F5EE;color:#0F6E56;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}
+mark{background:#FFF3BF;color:inherit;border-radius:3px;padding:0 1px;font-weight:700}
 .badge-fixo{background:#E6F1FB;color:#0C447C;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}
 .badge-var{background:#FAEEDA;color:#854F0B;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}
 .total-row{background:#f5f7fa;font-weight:600}
@@ -669,11 +670,14 @@ textarea{font-family:inherit}
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         <h2 style="margin:0">Pedidos lançados</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select id="ped-f-mes" onchange="renderPedidos()" style="width:auto;padding:6px 10px;font-size:13px">
+          <select id="ped-f-mes" onchange="onFiltroPedidoManual()" style="width:auto;padding:6px 10px;font-size:13px">
             <option value="">Todos os meses</option>
           </select>
-          <select id="ped-f-prod" onchange="renderPedidos()" style="width:auto;padding:6px 10px;font-size:13px">
+          <select id="ped-f-prod" onchange="onFiltroPedidoManual()" style="width:auto;padding:6px 10px;font-size:13px">
             <option value="">Todos os produtos</option>
+          </select>
+          <select id="ped-f-vend" onchange="onFiltroPedidoManual()" style="width:auto;padding:6px 10px;font-size:13px">
+            <option value="">Todos os vendedores</option>
           </select>
           <button id="btn-cancelados" class="btn" onclick="toggleCancelados()" style="width:auto;padding:6px 12px;font-size:13px;border-color:#A32D2D;color:#A32D2D">🗄️ <span id="btn-cancelados-txt">Cancelados</span> (<span id="canc-count">0</span>)</button>
         </div>
@@ -681,11 +685,11 @@ textarea{font-family:inherit}
       <div style="position:relative;margin-bottom:14px">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none">🔍</span>
         <input type="text" id="ped-busca"
-          placeholder="Buscar por nº do pedido ou cidade..."
-          oninput="renderPedidos()"
+          placeholder="Buscar cliente, nº, cidade, produto ou vendedor — procura em todos os meses"
+          oninput="onBuscaPedidos()"
           style="width:100%;padding:10px 14px 10px 38px;border:1px solid #d0d4d8;border-radius:8px;font-size:14px;background:#fafbfc"
           autocomplete="off"/>
-        <button id="ped-busca-clear" onclick="document.getElementById('ped-busca').value='';renderPedidos()"
+        <button id="ped-busca-clear" onclick="document.getElementById('ped-busca').value='';onBuscaPedidos()"
           style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:16px;cursor:pointer;color:#aaa;padding:2px 6px">✕</button>
       </div>
       <div id="lista-pedidos-gestao"><p class="empty">Nenhum pedido lançado.</p></div>
@@ -709,7 +713,7 @@ textarea{font-family:inherit}
         <select id="e-f-status" onchange="renderEntregas()" style="width:auto;padding:6px 10px;font-size:13px">
           <option value="">Todos os status</option>
           <option value="aguardando">⏳ Aguardando</option>
-          <option value="em_rota" selected>🚚 Em rota</option>
+          <option value="em_rota">🚚 Em rota</option>
           <option value="entregue">✅ Entregue</option>
         </select>
         <select id="e-f-com" onchange="renderEntregas()" style="width:auto;padding:6px 10px;font-size:13px">
@@ -732,7 +736,7 @@ textarea{font-family:inherit}
     <div style="position:relative;margin-bottom:10px">
       <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none">🔍</span>
       <input type="text" id="ent-busca"
-        placeholder="Buscar por nº do pedido ou cidade..."
+        placeholder="Buscar cliente, nº, cidade, produto ou vendedor — procura em todos os anos"
         oninput="renderEntregas()"
         style="width:100%;padding:10px 14px 10px 38px;border:1px solid #d0d4d8;border-radius:8px;font-size:14px;background:#fafbfc"
         autocomplete="off"/>
@@ -3527,8 +3531,10 @@ function renderEntregas(){
   anos.forEach(a=>{selAno.innerHTML+='<option value="'+a+'"'+(String(a)===fAno?' selected':'')+'>'+a+'</option>';});
   selAno.value=fAno;
 
-  // Filtra por ano se selecionado
-  const uniqFiltrado=fAno?uniq.filter(p=>String(p.ano)===fAno):uniq;
+  // Buscando, o ano sai do caminho: procurar um cliente tem que varrer tudo,
+  // senão um pedido do ano passado "não existe".
+  const buscandoEnt=!!(document.getElementById('ent-busca')&&document.getElementById('ent-busca').value.trim());
+  const uniqFiltrado=(fAno&&!buscandoEnt)?uniq.filter(p=>String(p.ano)===fAno):uniq;
 
   // cards (sempre totais do ano filtrado)
   const tot=uniqFiltrado.length;
@@ -3548,18 +3554,19 @@ function renderEntregas(){
   if(subCom)subCom.textContent='💰 Comissão a pagar ('+pedComAg.length+')';
 
   const el=document.getElementById('tabela-entregas');
-  const busca=(document.getElementById('ent-busca')?document.getElementById('ent-busca').value:'').trim().toLowerCase();
+  const vendPorGidEnt=mapaVendPorGid();
+  const busca=(document.getElementById('ent-busca')?document.getElementById('ent-busca').value:'').trim();
+  // Procurando um cliente, os outros filtros saem do caminho: o pedido tem que
+  // aparecer esteja ele aguardando, em rota ou já entregue.
+  const buscando=!!busca;
   const clearBtn=document.getElementById('ent-busca-clear');
   if(clearBtn)clearBtn.style.display=busca?'block':'none';
 
   let lista=uniqFiltrado;
-  if(fSt)lista=lista.filter(p=>getSt(p.gid)===fSt);
+  if(fSt&&!buscando)lista=lista.filter(p=>getSt(p.gid)===fSt);
   const fCom=document.getElementById('e-f-com').value;
-  if(fCom)lista=lista.filter(p=>getComSt(p.gid)===fCom);
-  if(busca)lista=lista.filter(p=>
-    String(p.num).includes(busca)||
-    (p.cid||'').toLowerCase().includes(busca)
-  );
+  if(fCom&&!buscando)lista=lista.filter(p=>getComSt(p.gid)===fCom);
+  if(busca)lista=lista.filter(p=>casaBuscaPedido(p,busca,vendPorGidEnt));
 
   // ordenar: aguardando → em_rota → entregue, depois por número crescente dentro de cada grupo
   lista.sort((a,b)=>{
@@ -3568,7 +3575,21 @@ function renderEntregas(){
     return parseInt(b.num)-parseInt(a.num);
   });
 
-  if(!lista.length){el.innerHTML='<p class="empty" style="padding:32px">Nenhum pedido'+(fSt?' com este status':'')+'.</p>';return;}
+  if(!lista.length){
+    el.innerHTML='<p class="empty" style="padding:32px">'
+      +(busca
+         ? 'Nada encontrado para <strong>“'+escHtml(busca)+'”</strong>.<br><span style="font-size:12px;color:#999">A busca olha número, cliente, cidade, UF, produto e vendedor, em todos os anos e status.</span>'
+         : 'Nenhum pedido'+(fSt?' com este status':'')+'.')
+      +'</p>';
+    return;
+  }
+
+  // Deixa claro que a busca passou por cima dos filtros — senão o usuário vê
+  // um pedido "de outro ano/status" na lista e acha que o filtro quebrou.
+  const avisoBusca=(buscando&&(fAno||fSt||fCom))
+    ? '<div style="background:#FFFBEA;border-bottom:1px solid #F0E2B0;padding:8px 14px;font-size:12px;color:#8a6200">'
+      +'🔍 Buscando em <strong>todos os anos e status</strong> — os filtros voltam quando você limpar a busca.</div>'
+    : '';
 
   // valor total por grupo (dentro do filtro de ano)
   const vAg=lista.filter(p=>getSt(p.gid)==='aguardando').reduce((s,p)=>s+p.val,0);
@@ -3635,7 +3656,7 @@ function renderEntregas(){
     +'<td style="text-align:right;color:#fff;font-weight:700">'+fmt(tvTotal)+'</td>'
     +'<td style="text-align:right;color:#F2A93B;font-weight:700">'+fmt(tcTotal)+'</td>'
     +'<td></td><td></td><td></td></tr>';
-  el.innerHTML=h+'</tbody></table>';
+  el.innerHTML=avisoBusca+h+'</tbody></table>';
   applyCardLabels('tabela-entregas');
 }
 
@@ -4370,6 +4391,80 @@ function pdfVendasAno(ano){
 }
 
 
+/* Escapa texto que vai para dentro do HTML. Nome de cliente e cidade chegam
+   de formulário preenchido pelo próprio cliente (assinar.html): um "<" solto
+   quebrava a tabela inteira. */
+function escHtml(v){
+  return String(v==null?'':v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+/* Texto de busca sem acento e em minúsculo: "jose" acha "José", "sao paulo"
+   acha "São Paulo". */
+function normBusca(v){
+  return String(v==null?'':v).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/\s+/g,' ').trim();
+}
+/* Nome dos vendedores de cada pedido, em um mapa montado de uma vez só.
+   vendedoresDoGid() varre ps inteiro a cada chamada — usar dentro do laço da
+   busca deixava a listagem quadrática. */
+function mapaVendPorGid(){
+  const m={};
+  ps.forEach(p=>{
+    if(p.tipo==='estorno')return;
+    const k=String(p.gid);
+    const v=acharVend(p.vid);
+    const nome=v?v.nome:(p.vendedorNome||'');
+    if(!nome)return;
+    if(!m[k])m[k]=[];
+    if(m[k].indexOf(nome)<0)m[k].push(nome);
+  });
+  return m;
+}
+/* O que faz um pedido ser encontrado: número, NOME DO CLIENTE, cidade, UF,
+   produto e vendedor. Antes só número e cidade — procurar pelo nome do cliente
+   simplesmente não achava nada. */
+function casaBuscaPedido(p, termo, vendPorGid){
+  const t=normBusca(termo);
+  if(!t)return true;
+  const pn=prods.find(x=>x.id===p.prod);
+  const alvo=normBusca([
+    p.num, p.clienteNome, p.cid, p.uf,
+    pn?pn.nome:'', (vendPorGid&&vendPorGid[String(p.gid)]||[]).join(' ')
+  ].filter(Boolean).join(' '));
+  // Todas as palavras precisam aparecer, em qualquer ordem: "joao santos"
+  // acha "João da Silva" em "Santos".
+  return t.split(' ').every(w=>alvo.indexOf(w)>=0);
+}
+/* Destaca o trecho procurado, sem deixar o texto do usuário virar HTML. */
+function destacar(texto, termo){
+  const original=String(texto==null?'':texto);
+  const t=normBusca(termo);
+  if(!t)return escHtml(original);
+  const alvo=normBusca(original);
+  const palavras=t.split(' ').filter(Boolean);
+  const marcas=new Array(original.length).fill(false);
+  // normBusca pode encurtar o texto (espaços repetidos); só destaca quando os
+  // tamanhos batem, senão as posições não correspondem e marcaria errado.
+  if(alvo.length!==original.length)return escHtml(original);
+  palavras.forEach(w=>{
+    let i=alvo.indexOf(w);
+    while(i>=0){ for(let k=i;k<i+w.length;k++)marcas[k]=true; i=alvo.indexOf(w,i+w.length); }
+  });
+  let out='',aberto=false;
+  for(let i=0;i<original.length;i++){
+    if(marcas[i]&&!aberto){out+='<mark>';aberto=true;}
+    if(!marcas[i]&&aberto){out+='</mark>';aberto=false;}
+    out+=escHtml(original[i]);
+  }
+  if(aberto)out+='</mark>';
+  return out;
+}
+
+/* Escolher "Todos os meses" não grudava: a cada redesenho o filtro voltava
+   sozinho para o mês corrente, porque "vazio" era tratado como "ainda não
+   escolhi". Agora o padrão do mês corrente vale só na PRIMEIRA montagem. */
+let pedFiltroIniciado=false;
 function renderSelPedFiltros(){
   // Meses
   const sel=document.getElementById('ped-f-mes');if(!sel)return;
@@ -4380,13 +4475,61 @@ function renderSelPedFiltros(){
   ls.forEach(m=>{const c=ck(m.mes,m.ano);h+=`<option value="${c}"${atual===c?' selected':''}>${m.mes} ${m.ano}</option>`;});
   sel.innerHTML=h;
   if(atual)sel.value=atual;
-  else{const cm=ck(refMes(),refAno());if(ls.find(m=>ck(m.mes,m.ano)===cm))sel.value=cm;}
+  else if(!pedFiltroIniciado){const cm=ck(refMes(),refAno());if(ls.find(m=>ck(m.mes,m.ano)===cm))sel.value=cm;}
+  pedFiltroIniciado=true;
   // Produtos
   const selP=document.getElementById('ped-f-prod');if(!selP)return;
   const atualP=selP.value;
   let hp='<option value="">Todos os produtos</option>';
-  prods.forEach(p=>{hp+=`<option value="${p.id}"${atualP===String(p.id)?' selected':''}>${p.nome}</option>`;});
+  prods.forEach(p=>{hp+=`<option value="${p.id}"${atualP===String(p.id)?' selected':''}>${escHtml(p.nome)}</option>`;});
   selP.innerHTML=hp;
+  // Vendedores — faltava, então não dava para ver os pedidos de um vendedor só
+  const selV=document.getElementById('ped-f-vend');if(!selV)return;
+  const atualV=selV.value;
+  let hv='<option value="">Todos os vendedores</option>';
+  vs.forEach(v=>{hv+=`<option value="${v.id}"${atualV===String(v.id)?' selected':''}>${escHtml(v.nome)}</option>`;});
+  selV.innerHTML=hv;
+}
+
+/* Buscar tem que varrer o sistema inteiro. O filtro de mês vem ligado no mês
+   corrente, então sem isto procurar por um cliente de outro mês não achava
+   nada e parecia que o pedido não existia. Ao limpar a busca, os filtros que
+   estavam antes voltam. */
+let pedFiltrosAntesDaBusca=null;
+function onBuscaPedidos(){
+  const inp=document.getElementById('ped-busca');
+  const sel=document.getElementById('ped-f-mes');
+  const selP=document.getElementById('ped-f-prod');
+  const selV=document.getElementById('ped-f-vend');
+  const tem=!!(inp&&inp.value.trim());
+  if(tem){
+    if(pedFiltrosAntesDaBusca===null){
+      pedFiltrosAntesDaBusca={mes:sel?sel.value:'',prod:selP?selP.value:'',vend:selV?selV.value:''};
+    }
+    if(sel)sel.value='';
+    if(selP)selP.value='';
+    if(selV)selV.value='';
+  }else if(pedFiltrosAntesDaBusca){
+    if(sel)sel.value=pedFiltrosAntesDaBusca.mes;
+    if(selP)selP.value=pedFiltrosAntesDaBusca.prod;
+    if(selV)selV.value=pedFiltrosAntesDaBusca.vend;
+    pedFiltrosAntesDaBusca=null;
+  }
+  renderPedidos();
+}
+/* Mexer num filtro à mão durante a busca vale mais que a restauração
+   automática — senão limpar a busca desfazia a escolha nova. */
+function onFiltroPedidoManual(){
+  pedFiltrosAntesDaBusca=null;
+  renderPedidos();
+}
+function limparFiltrosPedidos(){
+  const inp=document.getElementById('ped-busca');if(inp)inp.value='';
+  ['ped-f-mes','ped-f-prod','ped-f-vend'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  pedFiltrosAntesDaBusca=null;
+  renderPedidos();
 }
 
 function renderPedidos(){
@@ -4401,36 +4544,70 @@ function renderPedidos(){
   const clearBtn=document.getElementById('ped-busca-clear');
   if(clearBtn)clearBtn.style.display=busca?'block':'none';
 
-  let lista=uniquePedidos(ps);
+  const fVend=document.getElementById('ped-f-vend')?document.getElementById('ped-f-vend').value:'';
+  const vendPorGid=mapaVendPorGid();
+  const todos=uniquePedidos(ps);
+
+  let lista=todos;
   if(fMes)lista=lista.filter(p=>ck(p.mes,p.ano)===fMes);
   if(fProd)lista=lista.filter(p=>String(p.prod)===fProd);
-  if(busca)lista=lista.filter(p=>
-    String(p.num).includes(busca)||
-    (p.cid||'').toLowerCase().includes(busca)
-  );
+  if(fVend)lista=lista.filter(p=>ps.some(x=>x.gid===p.gid&&x.tipo!=='estorno'&&String(x.vid)===fVend));
+  if(busca)lista=lista.filter(p=>casaBuscaPedido(p,busca,vendPorGid));
   lista=lista.slice().sort((a,b)=>{
     const od=ord(ck(b.mes,b.ano))-ord(ck(a.mes,a.ano));
     return od!==0?od:parseInt(b.num)-parseInt(a.num);
   });
 
-  if(!lista.length){el.innerHTML=`<p class="empty">${busca?'Nenhum pedido encontrado para "'+busca+'"':'Nenhum pedido encontrado.'}</p>`;return;}
+  // Fichinhas do que está filtrando, cada uma com o ✕ para tirar só ela.
+  // Antes não dava para saber por que a lista estava curta.
+  const chips=[];
+  if(busca)chips.push({txt:'🔍 “'+escHtml(busca)+'”',fn:"document.getElementById('ped-busca').value='';onBuscaPedidos()"});
+  if(fMes)chips.push({txt:'📅 '+fMes.replace('_',' '),fn:"document.getElementById('ped-f-mes').value='';onFiltroPedidoManual()"});
+  if(fProd){const pnf=prods.find(x=>String(x.id)===fProd);
+    chips.push({txt:'📦 '+escHtml(pnf?pnf.nome:'produto'),fn:"document.getElementById('ped-f-prod').value='';onFiltroPedidoManual()"});}
+  if(fVend){const vf=acharVend(fVend);
+    chips.push({txt:'👤 '+escHtml(vf?vf.nome:'vendedor'),fn:"document.getElementById('ped-f-vend').value='';onFiltroPedidoManual()"});}
+  let chipsHtml='';
+  if(chips.length){
+    chipsHtml='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+      +'<span style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px;font-weight:700">Filtrando por</span>'
+      +chips.map(c=>'<span style="display:inline-flex;align-items:center;gap:6px;background:#E6F1FB;color:#0C447C;border:1px solid #B5D4F4;border-radius:999px;padding:3px 6px 3px 11px;font-size:12px;font-weight:600">'
+        +c.txt+'<button onclick="'+c.fn+'" title="Tirar este filtro" style="background:none;border:none;cursor:pointer;color:#0C447C;font-size:13px;line-height:1;padding:0 3px">✕</button></span>').join('')
+      +'<button class="btn" onclick="limparFiltrosPedidos()" style="width:auto;padding:3px 10px;font-size:11px">Limpar tudo</button>'
+      +'<span style="font-size:12px;color:#888;margin-left:auto">'+lista.length+' de '+todos.length+' pedido'+(todos.length!==1?'s':'')+'</span>'
+      +'</div>';
+  }
+
+  if(!lista.length){
+    // Diz o que está escondendo o resultado, em vez de só "nada encontrado".
+    let dica='Nenhum pedido lançado ainda.';
+    if(todos.length){
+      dica=busca
+        ? 'Nada encontrado para <strong>“'+escHtml(busca)+'”</strong>.<br><span style="font-size:12px;color:#999">A busca olha número, cliente, cidade, UF, produto e vendedor.</span>'
+        : 'Nenhum pedido com esses filtros.';
+      dica+='<br><button class="btn btn-primary" onclick="limparFiltrosPedidos()" style="width:auto;margin-top:12px;font-size:12px;padding:6px 14px">Limpar filtros</button>';
+    }
+    el.innerHTML=chipsHtml+'<p class="empty">'+dica+'</p>';
+    return;
+  }
 
   const tvol=lista.reduce((s,p)=>s+p.val,0);
   let h='<div class="table-wrap"><table><thead><tr>'
-    +'<th>Nº</th><th>Mês</th><th>Produto</th><th>Vendedor</th><th>Cidade</th><th>UF</th>'
+    +'<th>Nº</th><th>Mês</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Cidade / UF</th>'
     +'<th style="text-align:right">Valor</th><th style="text-align:right">Ações</th>'
     +'</tr></thead><tbody>';
 
   lista.forEach(p=>{
     const pn=prods.find(x=>x.id===p.prod);
-    const vnome=vendedoresDoGid(p.gid);
+    const vnome=(vendPorGid[String(p.gid)]||[]).join(', ')||'—';
+    const cliente=(p.clienteNome||'').trim();
     h+=`<tr>
-      <td><strong>${p.num}</strong></td>
+      <td><strong>${destacar(p.num,busca)}</strong></td>
       <td><span class="badge-m">${p.mes.substring(0,3)} ${p.ano}</span></td>
-      <td>${pn?`<span class="badge-prod">${pn.nome}</span>`:'<span style="color:#ccc">—</span>'}</td>
-      <td><span class="badge-vend">${vnome}</span></td>
-      <td>${p.cid}</td>
-      <td><strong>${p.uf}</strong></td>
+      <td>${cliente?destacar(cliente,busca):'<span style="color:#ccc">—</span>'}</td>
+      <td>${pn?`<span class="badge-prod">${destacar(pn.nome,busca)}</span>`:'<span style="color:#ccc">—</span>'}</td>
+      <td><span class="badge-vend">${destacar(vnome,busca)}</span></td>
+      <td>${destacar(p.cid,busca)} <strong>${destacar(p.uf,busca)}</strong></td>
       <td style="text-align:right;font-weight:600">${fmt(p.val)}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="editarPedido(${p.gid})">✏️ Editar</button>
@@ -4445,7 +4622,7 @@ function renderPedidos(){
     <td></td>
   </tr>`;
 
-  el.innerHTML=h+'</tbody></table></div>';
+  el.innerHTML=chipsHtml+h+'</tbody></table></div>';
   applyCardLabels('lista-pedidos-gestao');
 }
 
