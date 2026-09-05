@@ -1547,6 +1547,8 @@ async function mesclarComServidorAntesDeSalvar(soOrcamentos) {
         }));
         if (novos.length) {
           produtos = produtos.concat(novos);
+          // Acabaram de vir do servidor: já estão iguais lá, não precisam voltar.
+          novos.forEach(registrarAssinaturaProduto);
           console.log('🔄 ' + novos.length + ' produto(s) de outro computador preservados na gravação.');
         }
       }
@@ -1567,6 +1569,69 @@ async function mesclarComServidorAntesDeSalvar(soOrcamentos) {
     // Falhar aqui não pode impedir a gravação — só perde a proteção desta vez.
     console.warn('Não consegui reler o servidor antes de salvar:', e);
   }
+}
+
+// ── GRAVAÇÃO INCREMENTAL DO CATÁLOGO ────────────────────────────────────
+// Salvar UM produto reescrevia o catálogo INTEIRO: todo produto e todas as
+// fotos de projeto, a cada clique. Num catálogo de 40 produtos com 3 páginas
+// de projeto cada, isso dava 204 documentos e dezenas de MB de upload por
+// gravação — era a "eternidade" para cadastrar um produto.
+//
+// Aqui cada produto guarda uma assinatura do que foi gravado por último. Só vai
+// para o Firestore o que realmente mudou.
+const assinaturasProduto = new Map();
+
+/* Dois hashes diferentes + o comprimento. Guardar o JSON inteiro de cada
+   produto custaria dezenas de MB de memória por causa das fotos; a chance de
+   dois conteúdos diferentes baterem nos três ao mesmo tempo é desprezível. */
+function hashTexto(txt) {
+  const s = String(txt == null ? '' : txt);
+  let a = 5381, b = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    a = ((a << 5) + a + c) | 0;              // djb2
+    b = Math.imul(b ^ c, 16777619) | 0;      // FNV-1a
+  }
+  return (a >>> 0).toString(36) + '-' + (b >>> 0).toString(36) + '-' + s.length;
+}
+/* As fotos do lado esquerdo são lidas sob demanda (ao abrir um documento com
+   item "Esquerda"). Sem isto elas contariam como mudança e voltariam para o
+   servidor no save seguinte. Mexe SÓ nessa parte da assinatura — regravar a
+   assinatura inteira apagaria uma edição do produto ainda não salva. */
+function marcarFotosDirSincronizadas(p) {
+  const antiga = assinaturasProduto.get(String(p.id));
+  if (!antiga) return;
+  const partes = antiga.split('|');
+  if (partes.length !== 3) return;
+  partes[2] = hashTexto(JSON.stringify(p.fotosprojetoDir || []));
+  assinaturasProduto.set(String(p.id), partes.join('|'));
+}
+
+/* As fotos de projeto de um produto mudaram desde a última gravação?
+   A assinatura guarda as três partes separadas por "|": doc | projeto | dir. */
+function fotosProjetoMudaram(p, campo) {
+  const antiga = assinaturasProduto.get(String(p.id));
+  if (!antiga) return Array.isArray(p[campo]) && p[campo].length > 0;   // produto novo
+  const partes = antiga.split('|');
+  const idx = campo === 'fotosprojeto' ? 1 : 2;
+  return partes[idx] !== hashTexto(JSON.stringify(p[campo] || []));
+}
+function assinaturaProduto(doc, fotos, fotosDir) {
+  return hashTexto(JSON.stringify(doc)) + '|' +
+         hashTexto(JSON.stringify(fotos || [])) + '|' +
+         hashTexto(JSON.stringify(fotosDir || []));
+}
+/* Marca um produto como "igual ao que está no servidor". Chamado depois de
+   gravar com sucesso e depois de ler do servidor — nos dois casos os dois
+   lados estão iguais e não há o que regravar. */
+function registrarAssinaturaProduto(p) {
+  if (!p || p.id == null) return;
+  const { fotosprojeto, fotosprojetoDir, ...doc } = p;
+  assinaturasProduto.set(String(p.id), assinaturaProduto(doc, fotosprojeto, fotosprojetoDir));
+}
+function registrarAssinaturasDeTodos() {
+  assinaturasProduto.clear();
+  produtos.forEach(registrarAssinaturaProduto);
 }
 
 // Uma foto que JÁ está em JPEG e dentro do limite não precisa passar de novo
@@ -1645,29 +1710,31 @@ async function gravarAgora(opcoes) {
     if (soOrcamentos) { setStatus('✅ Salvo', 'ok'); return; }
 
     // Salva cada produto em documento separado (evita limite de 1MB).
-    // IMPORTANTE: fotosprojeto fica em acn_prod_fotos/{id} para não estoura o 1MB.
-    const fotosPorProd = {};
-    const fotosDirPorProd = {};
-    const prodsSemFotos = produtos.map(p => {
-      if (Array.isArray(p.fotosprojeto) && p.fotosprojeto.length) {
-        fotosPorProd[p.id] = p.fotosprojeto;
-      }
-      if (Array.isArray(p.fotosprojetoDir) && p.fotosprojetoDir.length) {
-        fotosDirPorProd[p.id] = p.fotosprojetoDir;
-      }
-      const { fotosprojeto, fotosprojetoDir, ...rest } = p;  // retira projeto (esq/dir) do doc
-      return rest;
+    // IMPORTANTE: fotosprojeto fica em acn_prod_fotos/{id} para não estourar o 1MB.
+    // Só entra na gravação o produto cuja assinatura mudou desde a última vez —
+    // ver "GRAVAÇÃO INCREMENTAL DO CATÁLOGO" acima.
+    const aGravar = [];
+    produtos.forEach(p => {
+      const { fotosprojeto, fotosprojetoDir, ...doc } = p;
+      const assinatura = assinaturaProduto(doc, fotosprojeto, fotosprojetoDir);
+      if (assinaturasProduto.get(String(p.id)) === assinatura) return;   // igual ao servidor
+      aGravar.push({ produto: p, doc, fotos: fotosprojeto, fotosDir: fotosprojetoDir, assinatura });
     });
 
-    await Promise.all([
-      ...prodsSemFotos.map(p => colProd.doc(String(p.id)).set(p)),
-      ...Object.entries(fotosPorProd).map(([id, fotos]) =>
-        salvarFotosProjeto(id, fotos)
-      ),
-      ...Object.entries(fotosDirPorProd).map(([id, fotos]) =>
-        salvarFotosProjetoDir(id, fotos)
-      )
-    ]);
+    if (aGravar.length) {
+      if (aGravar.length > 3) setStatus('💾 Salvando ' + aGravar.length + ' produtos…');
+      await Promise.all([
+        ...aGravar.map(x => colProd.doc(String(x.doc.id)).set(x.doc)),
+        // As fotos de projeto só sobem quando mudaram: cada página é um
+        // documento, e reenviar o catálogo todo era o grosso da demora.
+        ...aGravar.filter(x => fotosProjetoMudaram(x.produto, 'fotosprojeto'))
+          .map(x => salvarFotosProjeto(x.doc.id, x.fotos || [])),
+        ...aGravar.filter(x => fotosProjetoMudaram(x.produto, 'fotosprojetoDir'))
+          .map(x => salvarFotosProjetoDir(x.doc.id, x.fotosDir || []))
+      ]);
+      // Só depois de gravar de verdade: se falhar, a próxima tentativa reenvia.
+      aGravar.forEach(x => assinaturasProduto.set(String(x.doc.id), x.assinatura));
+    }
 
     setStatus('✅ Salvo', 'ok');
   } catch(e) {
@@ -1715,6 +1782,10 @@ async function loadFromFirebase() {
       const oldSnap = await db.collection('acn').doc('produtos').get();
       if (oldSnap.exists) { produtos = (oldSnap.data().lista || []); indexProdutosExistia = true; }
     }
+
+    // O catálogo acabou de vir do servidor: registra a assinatura de cada
+    // produto para que o próximo save() grave só o que o usuário mexer.
+    registrarAssinaturasDeTodos();
 
     if (orcSnap.exists) orcamentos = orcSnap.data().lista || [];
 
@@ -4905,6 +4976,8 @@ async function prepararLadosDoc(doc) {
       if (!pr || (Array.isArray(pr.fotosprojetoDir) && pr.fotosprojetoDir.length)) return;
       try { pr.fotosprojetoDir = await carregarFotosProjetoDir(pr.id) || []; }
       catch(e) { pr.fotosprojetoDir = []; }
+      // Vieram do servidor agora: não precisam voltar para lá no próximo save.
+      marcarFotosDirSincronizadas(pr);
     }),
     ...itensCustom.map(async it => {
       try { it.fotosProjetoCustom = await carregarFotosProjetoItem(it.id) || []; }
