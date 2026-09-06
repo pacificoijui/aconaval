@@ -122,14 +122,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .search-bar input::placeholder{color:#aab}
 .search-icon{color:var(--muted);font-size:16px;flex-shrink:0}
 
-/* ── CATEGORY CHIPS ── */
+/* ── BARRA DE CATEGORIA (só aparece vindo de um link direto de categoria) ──
+   A fileira de chips pra trocar de categoria foi retirada — a loja toda fica
+   sempre visível, na ordem definida no admin, sem esse filtro no meio do
+   caminho. Quem chega por um link de categoria específica ainda vê o nome
+   dela aqui, com um jeito claro de voltar a ver tudo. */
 .cat-bar{
   position:sticky;top:64px;z-index:50;
   background:var(--bg);
   margin:0 -20px 18px;padding:12px 20px 10px;
   border-bottom:1px solid var(--border);
 }
-.cat-row{display:flex;flex-wrap:wrap;gap:8px}
+.cat-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px}
+.cat-active-label{font-size:13px;color:var(--muted)}
+.cat-active-label strong{color:var(--text)}
+.cat-clear-btn{
+  border:1.5px solid var(--border);background:var(--white);color:var(--muted);
+  font-size:12.5px;font-weight:600;padding:6px 14px;border-radius:999px;cursor:pointer;
+  font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap
+}
+.cat-clear-btn:hover{border-color:var(--blue);color:var(--blue)}
 /* ── ATALHOS DA CATEGORIA (fotos de clientes / vídeos / depoimentos) ──
    Aparecem só quando há uma categoria escolhida E existe conteúdo daquele
    tipo pra ela — botão que não leva a lugar nenhum não é mostrado. */
@@ -463,8 +475,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- CATALOG VIEW -->
   <div class="catalog-view" id="catalog-view">
 
-    <!-- MENU DE CATEGORIAS (topo, fixo) -->
-    <div class="cat-bar" id="cat-bar">
+    <!-- BARRA DE CATEGORIA (só aparece vindo de um link direto de categoria) -->
+    <div class="cat-bar" id="cat-bar" style="display:none">
       <div class="cat-row" id="cat-row"></div>
       <div id="cat-acoes" class="cat-acoes" style="display:none"></div>
       <div id="subfilter-bar" class="subfilter-bar" style="display:none"></div>
@@ -719,6 +731,7 @@ let filtrosDefLoja = {};    // definição dos filtros por categoria (vem do adm
 let catPortfolioAlias = {}; // categoria sem portfólio próprio aponta pro de outra (vem do admin)
 let categoriasOrdem = [];   // ordem das categorias definida no admin (arrastar em "Categorias e Filtros")
 let subFiltros = {};        // seleção atual do cliente: { "Posição": "Ilha" }
+let categoriaViaLink = false;  // true quando a categoria veio de um link direto (?cat=) — dispara o auto-scroll da 1ª carga
 
 // Escapa HTML em textos vindos do banco. Nomes/medidas com aspas — ex: 60\" (polegadas) —
 // quebravam os atributos alt/title e o HTML dos cards inteiros.
@@ -775,7 +788,7 @@ function aplicarCatDaUrl() {
   const dec = decodeURIComponent(catParam);
   // aceita o nome exato (links antigos) OU o slug novo
   const achou = produtos.find(p => p.cat === dec || slugCat(p.cat) === slugCat(dec));
-  if (achou) filtroAtivo = achou.cat;
+  if (achou) { filtroAtivo = achou.cat; categoriaViaLink = true; }
 }
 function renderTudo() {
   window.__acnReady = true;   // desarma o watchdog de tela travada
@@ -785,6 +798,14 @@ function renderTudo() {
   renderSubFiltros();
   renderCatalog();
   atualizarWhatsAppLoja();
+  // Chegou por um link de categoria: pula direto pro primeiro produto dela,
+  // sem esperar o cliente rolar manualmente passando pelo banner. Só na
+  // primeira renderização — renderCatalog() roda de novo quando as fotos
+  // extras terminam de carregar, e aí não pode saltar a tela de novo.
+  if (categoriaViaLink) {
+    categoriaViaLink = false;
+    irParaGrade(false);
+  }
 }
 
 async function loadProdutos() {
@@ -853,20 +874,24 @@ function atualizarWhatsAppLoja(){
   wa.href = 'https://wa.me/' + WHATS_NUM + '?text=' + encodeURIComponent(msg);
 }
 
+// Não existe mais a fileira de chips pra trocar de categoria — a loja mostra
+// sempre o catálogo inteiro, na ordem das categorias definida no admin. Esta
+// barra só aparece para quem chegou por um link de categoria específica
+// (?cat=), com o nome dela e um jeito de voltar a ver tudo.
 function renderCategories() {
-  const presentes = new Set(produtos.filter(p=>!isCano(p)).map(p => p.cat).filter(Boolean));
-  // Ordem definida no admin (arrastar em "Categorias e Filtros"), só com as
-  // categorias que realmente têm produto. Categoria nova que ainda não foi
-  // organizada lá (rara — cadastro direto no produto) entra no fim, na ordem
-  // em que apareceu, pra não sumir da loja.
-  const ordenadas = categoriasOrdem.filter(c => presentes.has(c));
-  const extras = [...presentes].filter(c => !categoriasOrdem.includes(c));
-  const cats = ['Todos', ...ordenadas, ...extras];
+  const bar = document.getElementById('cat-bar');
   const row = document.getElementById('cat-row');
-  // encodeURIComponent blinda o onclick contra aspas/apóstrofos no nome da categoria
-  row.innerHTML = cats.map(c => `
-    <button class="cat-chip${c===filtroAtivo?' active':''}" onclick="setCategoria(decodeURIComponent('${encodeURIComponent(c)}'))">${escHtml(c)}</button>
-  `).join('');
+  if (!bar || !row) return;
+  if (!filtroAtivo || filtroAtivo === 'Todos') {
+    bar.style.display = 'none';
+    row.innerHTML = '';
+    return;
+  }
+  bar.style.display = '';
+  row.innerHTML = `
+    <span class="cat-active-label">Mostrando: <strong>${escHtml(filtroAtivo)}</strong></span>
+    <button class="cat-clear-btn" onclick="setCategoria('Todos')">✕ Ver todos os produtos</button>
+  `;
 }
 // Atalhos pro conteúdo da categoria escolhida. Ficam escondidos em "Todos"
 // (não há contexto de categoria) e cada botão só entra se existir conteúdo
@@ -899,6 +924,18 @@ function verPortfolioDaCategoria(cat)   { pfFiltro  = catPortfolioAlias[cat] || 
 function verVideosDaCategoria(cat)      { vidFiltro = cat; showVideos(); }
 function verDepoimentosDaCategoria(cat) { depFiltro = cat; showDepoimentos(); }
 
+// Rola até o topo da grade de produtos, descontando a topbar (e a barra de
+// categoria, quando ela está visível) — usado ao entrar por um link de
+// categoria (sem animação, a tela já abre lá) e ao sair do filtro pelo botão
+// "Ver todos os produtos" (com animação, porque é um clique do cliente).
+function irParaGrade(smooth) {
+  const grid = document.getElementById('product-grid');
+  if (!grid) { window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' }); return; }
+  const topbarH = (document.querySelector('.topbar') || {}).offsetHeight || 60;
+  const catBarH = (document.getElementById('cat-bar') || {}).offsetHeight || 0;
+  const y = grid.getBoundingClientRect().top + window.scrollY - topbarH - catBarH - 8;
+  window.scrollTo({ top: Math.max(0, y), behavior: smooth ? 'smooth' : 'auto' });
+}
 function setCategoria(cat) {
   filtroAtivo = cat;
   subFiltros = {};                 // trocar de categoria limpa os filtros
@@ -910,16 +947,10 @@ function setCategoria(cat) {
   renderSubFiltros();
   renderCatalog();
   atualizarWhatsAppLoja();
-  // Volta pro primeiro produto (corrige a tela ficar lá embaixo ao trocar de categoria)
-  const grid = document.getElementById('product-grid');
-  const topbarH = (document.querySelector('.topbar') || {}).offsetHeight || 60;
-  const catBarH = (document.getElementById('cat-bar') || {}).offsetHeight || 50;
-  if (grid) {
-    const y = grid.getBoundingClientRect().top + window.scrollY - topbarH - catBarH - 8;
-    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
-  } else {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+  // "Ver todos os produtos": volta pro topo, banner incluído — não faz
+  // sentido continuar na posição de uma categoria que não existe mais.
+  if (cat === 'Todos') window.scrollTo({ top: 0, behavior: 'smooth' });
+  else irParaGrade(true);
 }
 
 // ── SUBFILTROS DINÂMICOS DA CATEGORIA ─────────────────────────────
