@@ -122,26 +122,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .search-bar input::placeholder{color:#aab}
 .search-icon{color:var(--muted);font-size:16px;flex-shrink:0}
 
-/* ── BARRA DE CATEGORIA (só aparece vindo de um link direto de categoria) ──
-   A fileira de chips pra trocar de categoria foi retirada — a loja toda fica
-   sempre visível, na ordem definida no admin, sem esse filtro no meio do
-   caminho. Quem chega por um link de categoria específica ainda vê o nome
-   dela aqui, com um jeito claro de voltar a ver tudo. */
+/* ── CATEGORY CHIPS ── */
 .cat-bar{
   position:sticky;top:64px;z-index:50;
   background:var(--bg);
   margin:0 -20px 18px;padding:12px 20px 10px;
   border-bottom:1px solid var(--border);
 }
-.cat-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px}
-.cat-active-label{font-size:13px;color:var(--muted)}
-.cat-active-label strong{color:var(--text)}
-.cat-clear-btn{
-  border:1.5px solid var(--border);background:var(--white);color:var(--muted);
-  font-size:12.5px;font-weight:600;padding:6px 14px;border-radius:999px;cursor:pointer;
-  font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap
-}
-.cat-clear-btn:hover{border-color:var(--blue);color:var(--blue)}
+.cat-row{display:flex;flex-wrap:wrap;gap:8px}
 /* ── ATALHOS DA CATEGORIA (fotos de clientes / vídeos / depoimentos) ──
    Aparecem só quando há uma categoria escolhida E existe conteúdo daquele
    tipo pra ela — botão que não leva a lugar nenhum não é mostrado. */
@@ -156,18 +144,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .cat-acoes{gap:6px;margin-top:8px;padding-top:8px}
   .ca-btn{font-size:11.5px;padding:4px 9px;gap:4px}
 }
-/* ── SUBFILTROS (filtros dinâmicos da categoria) ── */
-.subfilter-bar{margin-top:10px;padding-top:10px;border-top:1px dashed #dbe4ee;display:flex;flex-direction:column;gap:7px;animation:sfIn .25s ease}
 @keyframes sfIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
-.sf-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.sf-label{font-size:11px;font-weight:700;color:#5b6b7d;text-transform:uppercase;letter-spacing:.5px;min-width:74px}
-.sf-chip{border:1.5px solid #d5dfe9;background:#fff;color:#37474f;font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:20px;cursor:pointer;transition:all .15s;white-space:nowrap;font-family:inherit}
-.sf-chip:hover{border-color:#185FA5;color:#185FA5}
-.sf-chip.active{background:#185FA5;border-color:#185FA5;color:#fff;box-shadow:0 2px 8px rgba(24,95,165,.25)}
-.sf-chip.disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
-.sf-chip .sf-count{font-weight:400;opacity:.65;font-size:11px;margin-left:3px}
-.sf-clear{border:none;background:#fceaea;color:#a32d2d;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;cursor:pointer;font-family:inherit}
-.sf-clear:hover{background:#f5d5d5}
 .cat-row::-webkit-scrollbar{display:none}
 .cat-chip{
   padding:7px 16px;border-radius:999px;border:1.5px solid var(--border);
@@ -378,7 +355,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .cat-bar{top:54px;margin:0 -12px 14px;padding:10px 12px 8px}
   .cat-row{flex-wrap:wrap;gap:7px}
   .cat-chip{font-size:12px;padding:6px 13px}
-  #subfilter-bar.subfilter-bar{margin:2px 0 14px;padding-top:0;border-top:none}
 
   /* Busca */
   .search-bar{padding:10px 12px}
@@ -475,11 +451,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- CATALOG VIEW -->
   <div class="catalog-view" id="catalog-view">
 
-    <!-- BARRA DE CATEGORIA (só aparece vindo de um link direto de categoria) -->
-    <div class="cat-bar" id="cat-bar" style="display:none">
+    <!-- MENU DE CATEGORIAS (topo, fixo) -->
+    <div class="cat-bar" id="cat-bar">
       <div class="cat-row" id="cat-row"></div>
       <div id="cat-acoes" class="cat-acoes" style="display:none"></div>
-      <div id="subfilter-bar" class="subfilter-bar" style="display:none"></div>
     </div>
 
     <div class="section-head">
@@ -730,7 +705,6 @@ let filtroAtivo = 'Todos';
 let filtrosDefLoja = {};    // definição dos filtros por categoria (vem do admin): { "Fogão": [{nome, opcoes:[]}] }
 let catPortfolioAlias = {}; // categoria sem portfólio próprio aponta pro de outra (vem do admin)
 let categoriasOrdem = [];   // ordem das categorias definida no admin (arrastar em "Categorias e Filtros")
-let subFiltros = {};        // seleção atual do cliente: { "Posição": "Ilha" }
 let categoriaViaLink = false;  // true quando a categoria veio de um link direto (?cat=) — dispara o auto-scroll da 1ª carga
 
 // Escapa HTML em textos vindos do banco. Nomes/medidas com aspas — ex: 60\" (polegadas) —
@@ -795,7 +769,6 @@ function renderTudo() {
   aplicarCatDaUrl();
   renderCategories();
   renderAcoesCategoria();
-  renderSubFiltros();
   renderCatalog();
   atualizarWhatsAppLoja();
   // Chegou por um link de categoria: pula direto pro primeiro produto dela,
@@ -874,24 +847,20 @@ function atualizarWhatsAppLoja(){
   wa.href = 'https://wa.me/' + WHATS_NUM + '?text=' + encodeURIComponent(msg);
 }
 
-// Não existe mais a fileira de chips pra trocar de categoria — a loja mostra
-// sempre o catálogo inteiro, na ordem das categorias definida no admin. Esta
-// barra só aparece para quem chegou por um link de categoria específica
-// (?cat=), com o nome dela e um jeito de voltar a ver tudo.
 function renderCategories() {
-  const bar = document.getElementById('cat-bar');
+  const presentes = new Set(produtos.filter(p=>!isCano(p)).map(p => p.cat).filter(Boolean));
+  // Ordem definida no admin (arrastar em "Categorias e Filtros"), só com as
+  // categorias que realmente têm produto. Categoria nova que ainda não foi
+  // organizada lá (rara — cadastro direto no produto) entra no fim, na ordem
+  // em que apareceu, pra não sumir da loja.
+  const ordenadas = categoriasOrdem.filter(c => presentes.has(c));
+  const extras = [...presentes].filter(c => !categoriasOrdem.includes(c));
+  const cats = ['Todos', ...ordenadas, ...extras];
   const row = document.getElementById('cat-row');
-  if (!bar || !row) return;
-  if (!filtroAtivo || filtroAtivo === 'Todos') {
-    bar.style.display = 'none';
-    row.innerHTML = '';
-    return;
-  }
-  bar.style.display = '';
-  row.innerHTML = `
-    <span class="cat-active-label">Mostrando: <strong>${escHtml(filtroAtivo)}</strong></span>
-    <button class="cat-clear-btn" onclick="setCategoria('Todos')">✕ Ver todos os produtos</button>
-  `;
+  // encodeURIComponent blinda o onclick contra aspas/apóstrofos no nome da categoria
+  row.innerHTML = cats.map(c => `
+    <button class="cat-chip${c===filtroAtivo?' active':''}" onclick="setCategoria(decodeURIComponent('${encodeURIComponent(c)}'))">${escHtml(c)}</button>
+  `).join('');
 }
 // Atalhos pro conteúdo da categoria escolhida. Ficam escondidos em "Todos"
 // (não há contexto de categoria) e cada botão só entra se existir conteúdo
@@ -938,96 +907,15 @@ function irParaGrade(smooth) {
 }
 function setCategoria(cat) {
   filtroAtivo = cat;
-  subFiltros = {};                 // trocar de categoria limpa os filtros
   // Atualiza a URL pra permitir compartilhar o link da categoria
   if (cat === 'Todos') history.replaceState({}, '', location.pathname);
   else history.replaceState({}, '', '?cat=' + slugCat(cat));
   renderCategories();
   renderAcoesCategoria();
-  renderSubFiltros();
   renderCatalog();
   atualizarWhatsAppLoja();
-  // "Ver todos os produtos": volta pro topo, banner incluído — não faz
-  // sentido continuar na posição de uma categoria que não existe mais.
-  if (cat === 'Todos') window.scrollTo({ top: 0, behavior: 'smooth' });
-  else irParaGrade(true);
-}
-
-// ── SUBFILTROS DINÂMICOS DA CATEGORIA ─────────────────────────────
-// Nomes dos filtros da categoria: usa a definição do admin e, se faltar,
-// infere pelos valores salvos nos próprios produtos (robustez).
-function filtrosDaCategoria(cat) {
-  const defs = (filtrosDefLoja[cat] || []).map(f => f.nome);
-  const extras = [];
-  produtos.filter(p => p.cat === cat && p.filtros).forEach(p => {
-    Object.keys(p.filtros).forEach(n => {
-      if (p.filtros[n] && !defs.includes(n) && !extras.includes(n)) extras.push(n);
-    });
-  });
-  return [...defs, ...extras];
-}
-
-// Produtos da categoria que passam nos filtros ativos (ignorando um filtro, se pedido)
-function produtosFiltrados(cat, ignorar) {
-  let lista = produtos.filter(p => !isCano(p) && p.cat === cat);
-  Object.entries(subFiltros).forEach(([nome, val]) => {
-    if (!val || nome === ignorar) return;
-    lista = lista.filter(p => p.filtros && p.filtros[nome] === val);
-  });
-  return lista;
-}
-
-function renderSubFiltros() {
-  const bar = document.getElementById('subfilter-bar');
-  if (!bar) return;
-  if (filtroAtivo === 'Todos') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
-
-  const nomes = filtrosDaCategoria(filtroAtivo);
-  if (!nomes.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
-
-  const catProds = produtos.filter(p => !isCano(p) && p.cat === filtroAtivo);
-  const temAtivo = Object.values(subFiltros).some(Boolean);
-  let html = '';
-
-  nomes.forEach(nome => {
-    // valores na ordem cadastrada no admin + extras vindos dos produtos
-    const def = (filtrosDefLoja[filtroAtivo] || []).find(f => f.nome === nome);
-    const usados = new Set(catProds.map(p => p.filtros && p.filtros[nome]).filter(Boolean));
-    const vals = [
-      ...(def && def.opcoes ? def.opcoes.filter(o => usados.has(o)) : []),
-      ...[...usados].filter(v => !(def && def.opcoes || []).includes(v))
-    ];
-    if (!vals.length) return;
-
-    // contagem considerando os OUTROS filtros ativos (o cliente vê o que sobra)
-    const base = produtosFiltrados(filtroAtivo, nome);
-    const chips = vals.map(v => {
-      const count = base.filter(p => p.filtros && p.filtros[nome] === v).length;
-      const on = subFiltros[nome] === v;
-      const cls = 'sf-chip' + (on ? ' active' : '') + (!on && count === 0 ? ' disabled' : '');
-      return `<button class="${cls}" onclick="setSubFiltro(decodeURIComponent('${encodeURIComponent(nome)}'),decodeURIComponent('${encodeURIComponent(v)}'))">${escHtml(v)}</button>`;
-    }).join('');
-    html += `<div class="sf-row"><span class="sf-label">${escHtml(nome)}</span>${chips}</div>`;
-  });
-
-  if (!html) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
-  if (temAtivo) html += `<div class="sf-row"><button class="sf-clear" onclick="limparSubFiltros()">✕ Limpar filtros</button></div>`;
-  bar.innerHTML = html;
-  bar.style.display = 'flex';
-}
-
-// Clica num valor: seleciona; clica de novo: desmarca
-function setSubFiltro(nome, val) {
-  if (subFiltros[nome] === val) delete subFiltros[nome];
-  else subFiltros[nome] = val;
-  renderSubFiltros();
-  renderCatalog();
-}
-
-function limparSubFiltros() {
-  subFiltros = {};
-  renderSubFiltros();
-  renderCatalog();
+  // Volta pro primeiro produto (corrige a tela ficar lá embaixo ao trocar de categoria)
+  irParaGrade(true);
 }
 
 // ── CATALOG ──────────────────────────────────────────────────────
@@ -1058,10 +946,6 @@ function renderCatalog() {
   let filtered = produtos.filter(p => !isCano(p));
   if (filtroAtivo !== 'Todos') filtered = filtered.filter(p => p.cat === filtroAtivo);
   else filtered = ordenarPorCategoria(filtered);
-  // Filtros dinâmicos da categoria (Posição, Tamanho, Tipo...)
-  Object.entries(subFiltros).forEach(([nome, val]) => {
-    if (val) filtered = filtered.filter(p => p.filtros && p.filtros[nome] === val);
-  });
   if (search) filtered = filtered.filter(p =>
     (p.nome||'').toLowerCase().includes(search) ||
     (p.cat||'').toLowerCase().includes(search) ||
@@ -1073,11 +957,9 @@ function renderCatalog() {
   label.textContent = `${filtered.length} produto${filtered.length !== 1 ? 's' : ''} encontrado${filtered.length !== 1 ? 's' : ''}`;
 
   if (!filtered.length) {
-    const temFiltro = Object.values(subFiltros).some(Boolean);
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
       <div class="icon">🔍</div>
-      <p>Nenhum produto encontrado.<br>${temFiltro ? 'Essa combinação de filtros não tem produto — tente mudar uma opção.' : 'Tente outra busca ou categoria.'}</p>
-      ${temFiltro ? '<button class="sf-clear" style="margin-top:12px" onclick="limparSubFiltros()">✕ Limpar filtros</button>' : ''}
+      <p>Nenhum produto encontrado.<br>Tente outra busca ou categoria.</p>
     </div>`;
     return;
   }
@@ -1174,25 +1056,6 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>el.classList.remove('show'), 2800);
 }
-
-// ── RESPONSIVE CHECKOUT GRID ─────────────────────────────────────
-// No CELULAR, os subfiltros saem da barra fixa e passam a rolar junto com os
-// produtos (some ao rolar), liberando espaço de visualização. No desktop eles
-// continuam dentro da barra fixa de categorias (comportamento original).
-function ajustarSubfiltroSticky() {
-  const bar = document.getElementById('subfilter-bar');
-  const catbar = document.getElementById('cat-bar');
-  if (!bar || !catbar) return;
-  const mobile = window.matchMedia('(max-width:768px)').matches;
-  if (mobile) {
-    if (bar.parentElement === catbar) catbar.parentNode.insertBefore(bar, catbar.nextSibling);
-  } else {
-    if (bar.parentElement !== catbar) catbar.appendChild(bar);
-  }
-}
-
-window.addEventListener('resize', ajustarSubfiltroSticky);
-ajustarSubfiltroSticky();
 
 // Galeria dos cards (foto principal + projeto + clientes)
 const cardFotosMap = {};
